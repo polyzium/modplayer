@@ -1,0 +1,16 @@
+[package]
+name = "modplayer"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+sdl2 = "0.35.2"
+byteorder = "1.4.3"
+ctrlc = "3.2.3"
+clap = { version = "4.0.15", features = ["derive"] }
+
+[[bin]]
+name = "modplayer"
+path = "main.rs"
