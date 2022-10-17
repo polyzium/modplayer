@@ -210,7 +210,7 @@ impl Channel<'_> {
         while remaining > 0 && self.playing {
             // Figure out how long this segment is, and discount it from
             // remaining.
-            let seg_ahead = if self.backwards {
+            let mut seg_ahead = if self.backwards {
                 self.position - sample.loop_start as f32
             } else if sample.loop_end > 0 {
                 sample.loop_end as f32 - self.position
@@ -229,17 +229,18 @@ impl Channel<'_> {
             // Make sure we don't write past the slab's end!
             if seg_samples > remaining {
                 seg_samples = remaining;
+                seg_ahead = seg_samples as f32 * self.freq / samplerate as f32;
             }
 
             remaining -= seg_samples;
 
             // Process this segment.
-            self.process_segment(sample, seg_samples, &mut slab[pos as usize..(pos + seg_samples) as usize], samplerate, interpolation);
+            self.process_segment(sample, seg_samples, seg_ahead, &mut slab[pos as usize..(pos + seg_samples) as usize], samplerate, interpolation);
             pos += seg_samples;
         }
     }
 
-    fn process_segment(&mut self, sample: &Sample, seg_samples: u32, slab_slice: &mut [i32], samplerate: u32, interpolation: Interpolation) {
+    fn process_segment(&mut self, sample: &Sample, seg_samples: u32, seg_ahead: f32, slab_slice: &mut [i32], samplerate: u32, interpolation: Interpolation) {
         // Make a buffer to store the result of the interpolation of the involved samples.
         let mut interpolated: Vec<i32> = vec![0i32; seg_samples as usize];
 
@@ -268,12 +269,10 @@ impl Channel<'_> {
         }
 
         // Advance the position a handful.
-        self.advance_position(seg_samples as f32, samplerate);
+        self.advance_position(seg_ahead);
     }
 
-    fn advance_position(&mut self, mut amount: f32, samplerate: u32) -> bool {
-        amount *= self.freq / samplerate as f32;
-
+    fn advance_position(&mut self, mut amount: f32) -> bool {
         let sample = &self.module.samples[self.current_sample_index as usize];
         if !self.playing || sample.audio.len() == 0 { return false; };
 
@@ -292,6 +291,7 @@ impl Channel<'_> {
                     self.position = sample.loop_start as f32;
                     self.backwards = false;
                 }
+                
 
                 else {
                     self.position = new_position;
@@ -300,13 +300,16 @@ impl Channel<'_> {
             }
 
             else {
-                let real_end = match sample.loop_end {
-                    0 => sample.audio.len() as u32,
-                    _ => sample.loop_end
+                let real_end = match sample.loop_type {
+                    LoopType::None => sample.audio.len() as f32,
+                    _ => match sample.loop_end {
+                        0 => sample.audio.len() as f32,
+                        _ => sample.loop_end as f32,
+                    },
                 };
 
-                if (new_position as u32) >= real_end {
-                    let offs = real_end as f32 - new_position;
+                if new_position >= real_end {
+                    let offs = real_end - new_position;
                     amount -= offs;
 
                     self.position = real_end as f32;
@@ -336,7 +339,7 @@ impl Channel<'_> {
                     break;
                 }
             }
-        }
+        };
 
         if !self.playing || sample.audio.len() == 0 { return false };
 
@@ -354,7 +357,7 @@ impl Channel<'_> {
     fn process(&mut self, samplerate: u32, interpolation: Interpolation) -> i32 {
         let sample = &self.module.samples[self.current_sample_index as usize];
         
-        if !self.advance_position(1.0, samplerate) { return 0; }
+        if !self.advance_position(self.freq / samplerate as f32) { return 0; }
 
         // FIXME detuning in uttitle.it
         self.interpolation(sample, interpolation, self.position)
