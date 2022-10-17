@@ -44,12 +44,10 @@ fn vec_linear(vec: &Vec<i16>, index: f32) -> i16 {
     (vec[index.floor() as usize] as f32+(index-index.floor())*((vec[index.ceil() as usize] as f32-vec[index.floor() as usize] as f32)*(index-index.floor()))) as i16
 }
 
-fn vec_sinc(vec: &Vec<i16>, index: f32) -> f32 {
+fn vec_sinc(vec: &Vec<i16>, quality: i32, index: f32) -> f32 {
     let ix = index.floor();
     let fx = index - ix;
     let mut tmp = 0f32;
-
-    let quality: i32 = 16;
 
     for i in 1-quality..quality+1 {
         tmp += vec[((ix+i as f32+vec.len() as f32) % vec.len() as f32) as usize] as f32 * sinc(i as f32-fx)
