@@ -10,7 +10,7 @@ pub enum Interpolation {
     #[default]
     None,
     Linear,
-    Sinc16,
+    Sinc8,
     // Sinc32,
     // Sinc64
 }
@@ -49,7 +49,7 @@ fn vec_sinc(vec: &Vec<i16>, index: f32) -> f32 {
     let fx = index - ix;
     let mut tmp = 0f32;
 
-    let quality: i32 = 16;
+    let quality: i32 = 8;
 
     for i in 1-quality..quality+1 {
         tmp += vec[((ix+i as f32+vec.len() as f32) % vec.len() as f32) as usize] as f32 * sinc(i as f32-fx)
@@ -59,35 +59,49 @@ fn vec_sinc(vec: &Vec<i16>, index: f32) -> f32 {
 }
 
 impl Channel<'_> {
-    fn porta_up(&mut self, mut value: u8) {
+    fn porta_up(&mut self, linear: bool, mut value: u8) {
         if value != 0 {
             self.porta_memory = value;
         } else {
             value = self.porta_memory;
         }
 
-        //TODO amiga slide
-
-        match value & 0xF0 { // Check if (extra) fine
-            0xE0 => self.freq = self.freq * 2f32.powf((value & 0x0F) as f32/768.0), // Extra fine
-            0xF0 => self.freq = self.freq * 2f32.powf(2.0*(value & 0x0F) as f32/768.0), // Fine
-            _ => self.freq = self.freq * 2f32.powf(4.0*value as f32/768.0), // Regular
+        if linear {
+            match value & 0xF0 { // Detect fine-iness
+                0xE0 => self.freq = self.freq * 2f32.powf((value & 0x0F) as f32/768.0), // Extra fine
+                0xF0 => self.freq = self.freq * 2f32.powf(2.0*(value & 0x0F) as f32/768.0), // Fine
+                _ => self.freq = self.freq * 2f32.powf(4.0*value as f32/768.0), // Regular
+            }
+        } else { // Amiga slide
+            // FIXME this is a rough approximation without using periods, LUTs or any of that shit
+            match value & 0xF0 {
+                0xE0 => self.freq += (self.freq/8363.0)*8.0*value as f32,
+                0xF0 => self.freq += (self.freq/8363.0)*16.0*value as f32,
+                _ => self.freq += (self.freq/8363.0)*32.0*value as f32
+            }
         }
     }
 
-    fn porta_down(&mut self, mut value: u8) {
+    fn porta_down(&mut self, linear: bool, mut value: u8) {
         if value != 0 {
             self.porta_memory = value;
         } else {
             value = self.porta_memory;
         }
 
-        //TODO amiga slide
-
-        match value & 0xF0 { // Check if (extra) fine
-            0xE0 => self.freq = self.freq * 2f32.powf(-((value & 0x0F) as f32)/768.0), // Extra fine
-            0xF0 => self.freq = self.freq * 2f32.powf(-2.0*(value & 0x0F) as f32/768.0), // Fine
-            _ => self.freq = self.freq * 2f32.powf(-4.0*value as f32/768.0), // Regular
+        if linear {
+            match value & 0xF0 { // Detect fine-iness
+                0xE0 => self.freq = self.freq * 2f32.powf(-((value & 0x0F) as f32)/768.0), // Extra fine
+                0xF0 => self.freq = self.freq * 2f32.powf(-2.0*(value & 0x0F) as f32/768.0), // Fine
+                _ => self.freq = self.freq * 2f32.powf(-4.0*value as f32/768.0), // Regular
+            }
+        } else { // Amiga slide
+            // FIXME this is a rough approximation without using periods, LUTs or any of that shit
+            match value & 0xF0 {
+                0xE0 => self.freq -= (self.freq/8363.0)*8.0*value as f32,
+                0xF0 => self.freq -= (self.freq/8363.0)*16.0*value as f32,
+                _ => self.freq -= (self.freq/8363.0)*32.0*value as f32
+            }
         }
     }
 
@@ -118,15 +132,14 @@ impl Channel<'_> {
                 }
             }
         } else { // Amiga slides
-            // TODO amiga slides
-            // Substituting linear slides instead
+            // FIXME this is a rough approximation without using periods, LUTs or any of that shit
             if self.freq < desired_freq {
-                self.freq = self.freq * 2f32.powf(4.0*value as f32/768.0);
+                self.freq += (self.freq/8363.0)*32.0*value as f32;
                 if self.freq > desired_freq {
                     self.freq = desired_freq
                 }
             } else if self.freq > desired_freq {
-                self.freq = self.freq * 2f32.powf(-4.0*value as f32/768.0);
+                self.freq -= (self.freq/8363.0)*32.0*value as f32;
                 if self.freq < desired_freq {
                     self.freq = desired_freq
                 }
@@ -232,7 +245,7 @@ impl Channel<'_> {
         match interpolation {
             Interpolation::None => (((sample.audio[self.position as usize]) as i32*32768) as f32*(self.volume as f32/64.0)*(sample.global_volume as f32/64.0)) as i32,
             Interpolation::Linear => ( ((vec_linear(&sample.audio, self.position-1.0)) as i32*32768) as f32*(self.volume/64.0)*(sample.global_volume as f32/64.0)) as i32,
-            Interpolation::Sinc16 => ( ((vec_sinc(&sample.audio, self.position)) as i32*32768) as f32*(self.volume as f32/64.0)*(sample.global_volume as f32/64.0)) as i32
+            Interpolation::Sinc8 => ( ((vec_sinc(&sample.audio, self.position)) as i32*32768) as f32*(self.volume as f32/64.0)*(sample.global_volume as f32/64.0)) as i32
         }
     }
 }
@@ -325,8 +338,8 @@ impl Player<'_> {
             let channel = &mut self.channels[i];
 
             match col.effect {
-                Effect::PortaUp(value) => channel.porta_up(value),
-                Effect::PortaDown(value) => channel.porta_down(value),
+                Effect::PortaUp(value) => channel.porta_up(self.module.linear_freq_slides, value),
+                Effect::PortaDown(value) => channel.porta_down(self.module.linear_freq_slides, value),
                 Effect::TonePorta(value) => channel.tone_portamento(col.note, self.module.linear_freq_slides, value),
                 Effect::VolSlide(value) => channel.vol_slide(value),
                 Effect::Retrig(value) => channel.retrigger(value),
