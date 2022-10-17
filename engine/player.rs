@@ -259,7 +259,7 @@ pub struct Player<'a> {
 
 impl Player<'_> {
     pub fn from_module(module: &Module, samplerate: u32) -> Player<'_> {
-        Player {
+        let mut player = Player {
             module,
 
             samplerate,
@@ -274,6 +274,7 @@ impl Player<'_> {
 
             tick_counter: 0,
             ticks_passed: 0,
+            tick_slab: 0,
 
             channels: array::from_fn(|_| Channel {
                 module: module,
@@ -293,7 +294,11 @@ impl Player<'_> {
                 volume: 64.0,
                 // panning: 0
             }),
-        }
+        };
+
+        player.tick_slab = player.compute_tick_slab();
+
+        player
     }
 
     pub fn process(&mut self) -> i32 {
@@ -338,7 +343,11 @@ impl Player<'_> {
 
     fn set_tempo(&mut self, tempo: u8) {
         self.current_tempo = tempo;
-        self.tick_slab = ((self.samplerate as f32*2.5)/self.current_tempo as f32) as u32; 
+        self.tick_slab = self.compute_tick_slab(); 
+    }
+
+    fn compute_tick_slab(&self) -> u32 {
+        ((self.samplerate as f32*2.5)/self.current_tempo as f32) as u32
     }
 
     fn advance_row(&mut self) {
