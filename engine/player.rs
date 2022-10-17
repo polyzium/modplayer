@@ -354,6 +354,7 @@ impl Channel<'_> {
         }
     }
 
+    /*
     fn process(&mut self, samplerate: u32, interpolation: Interpolation) -> i32 {
         let sample = &self.module.samples[self.current_sample_index as usize];
         
@@ -362,6 +363,7 @@ impl Channel<'_> {
         // FIXME detuning in uttitle.it
         self.interpolation(sample, interpolation, self.position)
     }
+    */
 }
 
 pub struct Player<'a> {
@@ -468,6 +470,7 @@ impl Player<'_> {
         self.tick_counter = extra_counter as u32;
     }
 
+    /*
     pub fn process(&mut self) -> i32 {
         let mut out = 0i32;
 
@@ -489,6 +492,7 @@ impl Player<'_> {
 
         out
     }
+    */
 
     fn process_tick(&mut self) {
         if self.current_row == 65535 { return };
