@@ -210,7 +210,7 @@ impl Channel<'_> {
         while remaining > 0 {
             // Figure out how long this segment is, and discount it from
             // remaining.
-            let mut seg_ahead = if self.backwards {
+            let seg_ahead = if self.backwards {
                 self.position as u32 - sample.loop_start
             } else if sample.loop_end > 0 {
                 sample.loop_end as u32 - self.position as u32
@@ -223,10 +223,9 @@ impl Channel<'_> {
             // Make sure we don't write past the slab's end!
             if seg_samples > remaining {
                 seg_samples = remaining;
-                seg_ahead = (seg_samples as u64 * self.freq as u64 / samplerate as u64) as u32;
             }
 
-            remaining -= seg_ahead;
+            remaining -= seg_samples;
 
             // Process this segment.
             self.process_segment(sample, seg_samples, &mut slab[pos as usize..(pos + seg_samples) as usize], samplerate, interpolation);
@@ -239,19 +238,21 @@ impl Channel<'_> {
         let mut interpolated: Vec<i32> = vec![0i32; seg_samples as usize];
 
         let start = self.position as f32;
+        let freq = self.freq / samplerate as f32;
 
         // NOTE: There is probably a better way to write this, than mostly the
         // same thing but with subtraction on one side and addition on the
         // other. FIXME: do that lol. 
         if self.backwards {
             for (i, val) in interpolated.iter_mut().enumerate() {
-                *val = self.interpolation(sample, interpolation, start - (i as f32 * self.freq));
+                *val = self.interpolation(sample, interpolation, start - (i as f32 * freq));
             }
         }
 
         else {
             for (i, val) in interpolated.iter_mut().enumerate() {
-                *val = self.interpolation(sample, interpolation, start + (i as f32 * self.freq));
+                //println!("{}", i as f32 * self.freq);
+                *val = self.interpolation(sample, interpolation, start + (i as f32 * freq));
             }
         }
         
