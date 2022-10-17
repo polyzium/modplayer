@@ -1,6 +1,6 @@
 use std::{array, io::{stdout, Write}, f32::consts::PI};
 
-use crate::engine::module::Effect;
+use crate::engine::module::{Effect, Sample};
 
 use super::module::{Module, LoopType, Note, VolEffect};
 use sdl2::audio::AudioCallback;
@@ -197,43 +197,159 @@ impl Channel<'_> {
         if self.volume < 0.0 { self.volume = 0.0 }
     }
 
-    fn process(&mut self, samplerate: u32, interpolation: Interpolation) -> i32 {
+    fn add_to_slab(&mut self, slab: &mut [i32], samplerate: u32, interpolation: Interpolation) {
         let sample = &self.module.samples[self.current_sample_index as usize];
-        if !self.playing || sample.audio.len() == 0 { return 0 };
 
-        if self.backwards {
-            if self.position as u32 <= sample.loop_start {
-                self.backwards = false
+        // Subdivide this tick-slab into 'segments': each time the sample
+        // either loops back around or switches direction, we finish the
+        // current 'segment' and start a new one.
+        
+        let mut remaining: u32 = slab.len() as u32;
+        let mut pos: u32 = 0;
+
+        while remaining > 0 {
+            // Figure out how long this segment is, and discount it from
+            // remaining.
+            let mut seg_ahead = if self.backwards {
+                self.position as u32 - sample.loop_start
+            } else if sample.loop_end > 0 {
+                sample.loop_end as u32 - self.position as u32
             } else {
-                self.position -= self.freq/samplerate as f32;
+                sample.audio.len() as u32 - self.position as u32
+            };
+
+            let mut seg_samples = (seg_ahead as u64 * samplerate as u64 / self.freq as u64) as u32;
+
+            // Make sure we don't write past the slab's end!
+            if seg_samples > remaining {
+                seg_samples = remaining;
+                seg_ahead = (seg_samples as u64 * self.freq as u64 / samplerate as u64) as u32;
             }
-        } else {
-            self.position += self.freq/samplerate as f32;
+
+            remaining -= seg_ahead;
+
+            // Process this segment.
+            self.process_segment(sample, seg_samples, seg_ahead, &mut slab[pos as usize..(pos + seg_samples) as usize], samplerate, interpolation);
+            pos += seg_samples;
+        }
+    }
+
+    fn process_segment(&mut self, sample: &Sample, seg_samples: u32, seg_ahead: u32, slab_slice: &mut [i32], samplerate: u32, interpolation: Interpolation) {
+        // Make a buffer to store the result of the interpolation of the involved samples.
+        let interpolated: Vec<i32> = vec![0i32; seg_samples as usize];
+
+        let start = self.position as f32;
+
+        // NOTE: There is probably a better way to write this, than mostly the
+        // same thing but with subtraction on one side and addition on the
+        // other. FIXME: do that lol. 
+        if self.backwards {
+            for (i, val) in interpolated.iter_mut().enumerate() {
+                *val = self.interpolation(sample, interpolation, start - (i as f32 * self.freq));
+            }
         }
 
-        if sample.loop_end > 0 {
-            if self.position as u32 > sample.loop_end-1 {
-                match sample.loop_type {
-                    LoopType::Forward => self.position = sample.loop_start as f32,
-                    LoopType::PingPong => { self.backwards = true; self.position -= self.freq/samplerate as f32; }, // self.position -= 1.0 or 2.0 does not work as the program errors with out of bounds
-                    _ => {},
+        else {
+            for (i, val) in interpolated.iter_mut().enumerate() {
+                *val = self.interpolation(sample, interpolation, start + (i as f32 * self.freq));
+            }
+        }
+        
+        // Apply the interpolated buffer to slab_slice.
+        for (ival, oval) in interpolated.iter().zip(slab_slice.iter_mut()) {
+            *oval = oval.saturating_add(*ival);
+        }
+
+        // Advance the position a handful.
+    }
+
+    fn advance_position(&mut self, mut amount: f32, samplerate: u32) -> bool {
+        amount *= self.freq / samplerate as f32;
+
+        let sample = &self.module.samples[self.current_sample_index as usize];
+        if !self.playing || sample.audio.len() == 0 { return false; };
+
+        while amount > 0.0 {
+            let new_position = self.position + if self.backwards {
+                -(amount as f32)
+            } else {
+                amount as f32
+            };
+
+            if self.backwards {
+                if (new_position as u32) < sample.loop_start {
+                    let offs = sample.loop_start as f32 - new_position;
+                    amount -= offs;
+
+                    self.position = sample.loop_start as f32;
+                    self.backwards = false;
+                }
+
+                else {
+                    self.position = new_position;
+                    amount = 0.0;
+                }
+            }
+
+            else {
+                let real_end = match sample.loop_end {
+                    0 => sample.audio.len() as u32,
+                    _ => sample.loop_end
+                };
+
+                if (new_position as u32) > real_end {
+                    let offs = real_end as f32 - new_position;
+                    amount -= offs;
+
+                    self.position = real_end as f32;
+                    self.backwards = match sample.loop_type {
+                        LoopType::PingPong => true,
+                        _ => false,
+                    };
+                }
+
+                else {
+                    self.position = new_position;
+                    amount = 0.0;
+                }
+
+                // If we're not looping, encountering the end while looping
+                // forwards should be the end.
+                if (new_position as usize) > sample.audio.len() {
+                    match sample.loop_type {
+                        LoopType::None => {
+                            self.playing = false;
+                            self.backwards = false;
+                        },
+
+                        _ => {},
+                    };
+
+                    break;
                 }
             }
         }
 
-        // Prevent out of bounds, but it doesn't seem to be working reliably
-        if self.position as usize >= sample.audio.len()-1 && matches!(sample.loop_type, LoopType::None) {
-            self.playing = false; self.backwards = false;
-        }
+        if !self.playing || sample.audio.len() == 0 { return false };
 
-        if !self.playing { return 0 };
+        true
+    }
+
+    fn interpolation(&self, sample: &Sample, interpolation: Interpolation, at: f32) -> i32 {
+        match interpolation {
+            Interpolation::None => (((sample.audio[at as usize]) as i32*32768) as f32*(self.volume as f32/64.0)*(sample.global_volume as f32/64.0)) as i32,
+            Interpolation::Linear => ( ((vec_linear(&sample.audio, at - 1.0)) as i32*32768) as f32*(self.volume/64.0)*(sample.global_volume as f32/64.0)) as i32,
+            Interpolation::Sinc16 => ( ((vec_sinc(&sample.audio, at)) as i32*32768) as f32*(self.volume as f32/64.0)*(sample.global_volume as f32/64.0)) as i32
+        }
+    }
+
+    fn process(&mut self, samplerate: u32, interpolation: Interpolation) -> i32 {
+        let sample = &self.module.samples[self.current_sample_index as usize];
+        
+        if !self.advance_position(1.0, samplerate) { return 0; }
 
         // FIXME detuning in uttitle.it
-        match interpolation {
-            Interpolation::None => (((sample.audio[self.position as usize]) as i32*32768) as f32*(self.volume as f32/64.0)*(sample.global_volume as f32/64.0)) as i32,
-            Interpolation::Linear => ( ((vec_linear(&sample.audio, self.position-1.0)) as i32*32768) as f32*(self.volume/64.0)*(sample.global_volume as f32/64.0)) as i32,
-            Interpolation::Sinc16 => ( ((vec_sinc(&sample.audio, self.position)) as i32*32768) as f32*(self.volume as f32/64.0)*(sample.global_volume as f32/64.0)) as i32
-        }
+        self.interpolation(sample, interpolation, self.position)
     }
 }
 
@@ -299,6 +415,30 @@ impl Player<'_> {
         player.tick_slab = player.compute_tick_slab();
 
         player
+    }
+
+    pub fn process_to_buffer(&mut self, buf: &mut [i32]) {
+        let num_samples = buf.len();
+        let total_counter = num_samples + self.tick_counter as usize;
+        let num_ticks = total_counter / self.tick_slab as usize;
+        let extra_counter = total_counter % self.tick_slab as usize;
+
+        for i in 0..num_ticks {
+            for c in self.channels.iter_mut() {
+                c.add_to_slab(&mut buf[i * self.tick_slab as usize..], self.samplerate, self.interpolation);
+            }
+
+            self.ticks_passed += 1;
+
+            if self.ticks_passed >= self.current_speed {
+                self.advance_row();
+                self.play_row();
+            }
+
+            self.process_tick();
+        }
+
+        self.tick_counter = extra_counter as u32;
     }
 
     pub fn process(&mut self) -> i32 {
@@ -465,8 +605,6 @@ impl AudioCallback for Player<'_> {
     type Channel = i32;
 
     fn callback(&mut self, out: &mut [i32]) {
-        for s in out.iter_mut() {
-            *s = self.process();
-        }
+        self.process_to_buffer(out);
     }
 }
