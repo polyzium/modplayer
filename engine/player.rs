@@ -425,6 +425,8 @@ impl Player<'_> {
         let num_ticks = total_counter / self.tick_slab as usize;
         let extra_counter = total_counter % self.tick_slab as usize;
 
+        buf.fill(0);
+
         for i in 0..num_ticks {
             for c in self.channels.iter_mut() {
                 c.add_to_slab(&mut buf[i * self.tick_slab as usize..], self.samplerate, self.interpolation);
