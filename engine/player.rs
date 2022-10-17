@@ -11,7 +11,7 @@ pub enum Interpolation {
     None,
     Linear,
     Sinc16,
-    // Sinc32,
+    Sinc32,
     // Sinc64
 }
 
@@ -22,7 +22,7 @@ struct Channel<'a> {
     current_sample_index: u8,
     playing: bool,
     freq: f32,
-    position: f32,
+    position: f64,
     backwards: bool,
 
     porta_memory: u8, // Exx, Fxx, Gxx
@@ -44,12 +44,10 @@ fn vec_linear(vec: &Vec<i16>, index: f32) -> i16 {
     (vec[index.floor() as usize] as f32+(index-index.floor())*((vec[index.ceil() as usize] as f32-vec[index.floor() as usize] as f32)*(index-index.floor()))) as i16
 }
 
-fn vec_sinc(vec: &Vec<i16>, index: f32) -> f32 {
+fn vec_sinc(vec: &Vec<i16>, quality: i32, index: f32) -> f32 {
     let ix = index.floor();
     let fx = index - ix;
     let mut tmp = 0f32;
-
-    let quality: i32 = 16;
 
     for i in 1-quality..quality+1 {
         tmp += vec[((ix+i as f32+vec.len() as f32) % vec.len() as f32) as usize] as f32 * sinc(i as f32-fx)
@@ -59,35 +57,49 @@ fn vec_sinc(vec: &Vec<i16>, index: f32) -> f32 {
 }
 
 impl Channel<'_> {
-    fn porta_up(&mut self, mut value: u8) {
+    fn porta_up(&mut self, linear: bool, mut value: u8) {
         if value != 0 {
             self.porta_memory = value;
         } else {
             value = self.porta_memory;
         }
 
-        //TODO amiga slide
-
-        match value & 0xF0 { // Check if (extra) fine
-            0xE0 => self.freq = self.freq * 2f32.powf((value & 0x0F) as f32/768.0), // Extra fine
-            0xF0 => self.freq = self.freq * 2f32.powf(2.0*(value & 0x0F) as f32/768.0), // Fine
-            _ => self.freq = self.freq * 2f32.powf(4.0*value as f32/768.0), // Regular
+        if linear {
+            match value & 0xF0 { // Detect fine-iness
+                0xE0 => self.freq = self.freq * 2f32.powf((value & 0x0F) as f32/768.0), // Extra fine
+                0xF0 => self.freq = self.freq * 2f32.powf(2.0*(value & 0x0F) as f32/768.0), // Fine
+                _ => self.freq = self.freq * 2f32.powf(4.0*value as f32/768.0), // Regular
+            }
+        } else { // Amiga slide
+            // FIXME this is a rough approximation without using periods, LUTs or any of that shit
+            match value & 0xF0 {
+                0xE0 => self.freq += (self.freq/8363.0)*8.0*value as f32,
+                0xF0 => self.freq += (self.freq/8363.0)*16.0*value as f32,
+                _ => self.freq += (self.freq/8363.0)*32.0*value as f32
+            }
         }
     }
 
-    fn porta_down(&mut self, mut value: u8) {
+    fn porta_down(&mut self, linear: bool, mut value: u8) {
         if value != 0 {
             self.porta_memory = value;
         } else {
             value = self.porta_memory;
         }
 
-        //TODO amiga slide
-
-        match value & 0xF0 { // Check if (extra) fine
-            0xE0 => self.freq = self.freq * 2f32.powf(-((value & 0x0F) as f32)/768.0), // Extra fine
-            0xF0 => self.freq = self.freq * 2f32.powf(-2.0*(value & 0x0F) as f32/768.0), // Fine
-            _ => self.freq = self.freq * 2f32.powf(-4.0*value as f32/768.0), // Regular
+        if linear {
+            match value & 0xF0 { // Detect fine-iness
+                0xE0 => self.freq = self.freq * 2f32.powf(-((value & 0x0F) as f32)/768.0), // Extra fine
+                0xF0 => self.freq = self.freq * 2f32.powf(-2.0*(value & 0x0F) as f32/768.0), // Fine
+                _ => self.freq = self.freq * 2f32.powf(-4.0*value as f32/768.0), // Regular
+            }
+        } else { // Amiga slide
+            // FIXME this is a rough approximation without using periods, LUTs or any of that shit
+            match value & 0xF0 {
+                0xE0 => self.freq -= (self.freq/8363.0)*8.0*value as f32,
+                0xF0 => self.freq -= (self.freq/8363.0)*16.0*value as f32,
+                _ => self.freq -= (self.freq/8363.0)*32.0*value as f32
+            }
         }
     }
 
@@ -118,15 +130,14 @@ impl Channel<'_> {
                 }
             }
         } else { // Amiga slides
-            // TODO amiga slides
-            // Substituting linear slides instead
+            // FIXME this is a rough approximation without using periods, LUTs or any of that shit
             if self.freq < desired_freq {
-                self.freq = self.freq * 2f32.powf(4.0*value as f32/768.0);
+                self.freq += (self.freq/8363.0)*32.0*value as f32;
                 if self.freq > desired_freq {
                     self.freq = desired_freq
                 }
             } else if self.freq > desired_freq {
-                self.freq = self.freq * 2f32.powf(-4.0*value as f32/768.0);
+                self.freq -= (self.freq/8363.0)*32.0*value as f32;
                 if self.freq < desired_freq {
                     self.freq = desired_freq
                 }
@@ -211,14 +222,14 @@ impl Channel<'_> {
             // Figure out how long this segment is, and discount it from
             // remaining.
             let mut seg_ahead = if self.backwards {
-                self.position - sample.loop_start as f32
+                self.position - sample.loop_start as f64
             } else if sample.loop_end > 0 {
-                sample.loop_end as f32 - self.position
+                sample.loop_end as f64 - self.position
             } else {
-                sample.audio.len() as f32 - self.position
+                sample.audio.len() as f64 - self.position
             };
 
-            let mut seg_samples = (seg_ahead * samplerate as f32 / self.freq as f32) as u32;
+            let mut seg_samples = (seg_ahead * samplerate as f64 / self.freq as f64) as u32;
 
             // Dirty hack to prevent infinite loops.
             // FIXME: Find a more elegant solution!
@@ -229,7 +240,7 @@ impl Channel<'_> {
             // Make sure we don't write past the slab's end!
             if seg_samples > remaining {
                 seg_samples = remaining;
-                seg_ahead = seg_samples as f32 * self.freq / samplerate as f32;
+                seg_ahead = seg_samples as f64 * self.freq as f64 / samplerate as f64;
             }
 
             remaining -= seg_samples;
@@ -240,26 +251,26 @@ impl Channel<'_> {
         }
     }
 
-    fn process_segment(&mut self, sample: &Sample, seg_samples: u32, seg_ahead: f32, slab_slice: &mut [i32], samplerate: u32, interpolation: Interpolation) {
+    fn process_segment(&mut self, sample: &Sample, seg_samples: u32, seg_ahead: f64, slab_slice: &mut [i32], samplerate: u32, interpolation: Interpolation) {
         // Make a buffer to store the result of the interpolation of the involved samples.
         let mut interpolated: Vec<i32> = vec![0i32; seg_samples as usize];
 
-        let start = self.position as f32;
-        let freq = self.freq / samplerate as f32;
+        let start = self.position as f64;
+        let freq = self.freq as f64 / samplerate as f64;
 
         // NOTE: There is probably a better way to write this, than mostly the
         // same thing but with subtraction on one side and addition on the
         // other. FIXME: do that lol. 
         if self.backwards {
             for (i, val) in interpolated.iter_mut().enumerate() {
-                *val = self.interpolation(sample, interpolation, start - (i as f32 * freq));
+                *val = self.interpolation(sample, interpolation, start - (i as f64 * freq));
             }
         }
 
         else {
             for (i, val) in interpolated.iter_mut().enumerate() {
-                //println!("{}", i as f32 * self.freq);
-                *val = self.interpolation(sample, interpolation, start + (i as f32 * freq));
+                //println!("{}", i as f64 * self.freq);
+                *val = self.interpolation(sample, interpolation, start + (i as f64 * freq));
             }
         }
         
@@ -272,23 +283,23 @@ impl Channel<'_> {
         self.advance_position(seg_ahead);
     }
 
-    fn advance_position(&mut self, mut amount: f32) -> bool {
+    fn advance_position(&mut self, mut amount: f64) -> bool {
         let sample = &self.module.samples[self.current_sample_index as usize];
         if !self.playing || sample.audio.len() == 0 { return false; };
 
         while amount > 0.0 {
             let new_position = self.position + if self.backwards {
-                -(amount as f32)
+                -(amount as f64)
             } else {
-                amount as f32
+                amount as f64
             };
 
             if self.backwards {
                 if (new_position as u32) <= sample.loop_start {
-                    let offs = sample.loop_start as f32 - new_position;
+                    let offs = sample.loop_start as f64 - new_position;
                     amount -= offs;
 
-                    self.position = sample.loop_start as f32;
+                    self.position = sample.loop_start as f64;
                     self.backwards = false;
                 }
                 
@@ -301,10 +312,10 @@ impl Channel<'_> {
 
             else {
                 let real_end = match sample.loop_type {
-                    LoopType::None => sample.audio.len() as f32,
+                    LoopType::None => sample.audio.len() as f64,
                     _ => match sample.loop_end {
-                        0 => sample.audio.len() as f32,
-                        _ => sample.loop_end as f32,
+                        0 => sample.audio.len() as f64,
+                        _ => sample.loop_end as f64,
                     },
                 };
 
@@ -319,7 +330,7 @@ impl Channel<'_> {
                         },
 
                         LoopType::Forward => {
-                            self.position = sample.loop_start as f32;
+                            self.position = sample.loop_start as f64;
                         },
 
                         _ => {
@@ -345,11 +356,12 @@ impl Channel<'_> {
         true
     }
 
-    fn interpolation(&self, sample: &Sample, interpolation: Interpolation, at: f32) -> i32 {
+    fn interpolation(&self, sample: &Sample, interpolation: Interpolation, at: f64) -> i32 {
         match interpolation {
             Interpolation::None => (((sample.audio[at as usize]) as i32*32768) as f32*(self.volume as f32/64.0)*(sample.global_volume as f32/64.0)) as i32,
-            Interpolation::Linear => ( ((vec_linear(&sample.audio, at - 1.0)) as i32*32768) as f32*(self.volume/64.0)*(sample.global_volume as f32/64.0)) as i32,
-            Interpolation::Sinc16 => ( ((vec_sinc(&sample.audio, at)) as i32*32768) as f32*(self.volume as f32/64.0)*(sample.global_volume as f32/64.0)) as i32
+            Interpolation::Linear => ( ((vec_linear(&sample.audio, (at-1.0) as f32 )) as i32*32768) as f32*(self.volume/64.0)*(sample.global_volume as f32/64.0)) as i32,
+            Interpolation::Sinc16 => ( ((vec_sinc(&sample.audio, 16, at as f32)) as i32*32768) as f32*(self.volume as f32/64.0)*(sample.global_volume as f32/64.0)) as i32,
+            Interpolation::Sinc32 => ( ((vec_sinc(&sample.audio, 32, at as f32)) as i32*32768) as f32*(self.volume as f32/64.0)*(sample.global_volume as f32/64.0)) as i32
         }
     }
 
@@ -371,8 +383,8 @@ pub struct Player<'a> {
     pub samplerate: u32,
     pub interpolation: Interpolation,
 
-    current_position: u8,
-    current_pattern: u8,
+    pub current_position: u8,
+    pub current_pattern: u8,
     current_row: u16,
 
     current_tempo: u8,
@@ -501,8 +513,8 @@ impl Player<'_> {
             let channel = &mut self.channels[i];
 
             match col.effect {
-                Effect::PortaUp(value) => channel.porta_up(value),
-                Effect::PortaDown(value) => channel.porta_down(value),
+                Effect::PortaUp(value) => channel.porta_up(self.module.linear_freq_slides, value),
+                Effect::PortaDown(value) => channel.porta_down(self.module.linear_freq_slides, value),
                 Effect::TonePorta(value) => channel.tone_portamento(col.note, self.module.linear_freq_slides, value),
                 Effect::VolSlide(value) => channel.vol_slide(value),
                 Effect::Retrig(value) => channel.retrigger(value),
@@ -517,7 +529,7 @@ impl Player<'_> {
     }
 
     fn compute_tick_slab(&self) -> u32 {
-        ((self.samplerate as f32*2.5)/self.current_tempo as f32) as u32
+        ((self.samplerate as f64*2.5)/self.current_tempo as f64) as u32
     }
 
     fn advance_row(&mut self) {
@@ -617,7 +629,7 @@ impl Player<'_> {
                     if !matches!(col.effect, Effect::TonePorta(_)) && !matches!(col.vol, VolEffect::TonePorta(_)) {
                         channel.playing = true;
                         channel.position = match col.effect {
-                            Effect::SampleOffset(position) => { if position != 0 { channel.offset_memory = position }; channel.offset_memory as f32 * 256.0 },
+                            Effect::SampleOffset(position) => { if position != 0 { channel.offset_memory = position }; channel.offset_memory as f64 * 256.0 },
                             _ => 0.0
                         };
                         channel.freq = 2f32.powf((note as f32-60.0)/12.0)*self.module.samples[channel.current_sample_index as usize].base_frequency as f32;
