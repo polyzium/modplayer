@@ -229,12 +229,12 @@ impl Channel<'_> {
             remaining -= seg_ahead;
 
             // Process this segment.
-            self.process_segment(sample, seg_samples, seg_ahead, &mut slab[pos as usize..(pos + seg_samples) as usize], samplerate, interpolation);
+            self.process_segment(sample, seg_samples, &mut slab[pos as usize..(pos + seg_samples) as usize], samplerate, interpolation);
             pos += seg_samples;
         }
     }
 
-    fn process_segment(&mut self, sample: &Sample, seg_samples: u32, seg_ahead: u32, slab_slice: &mut [i32], samplerate: u32, interpolation: Interpolation) {
+    fn process_segment(&mut self, sample: &Sample, seg_samples: u32, slab_slice: &mut [i32], samplerate: u32, interpolation: Interpolation) {
         // Make a buffer to store the result of the interpolation of the involved samples.
         let mut interpolated: Vec<i32> = vec![0i32; seg_samples as usize];
 
@@ -261,6 +261,7 @@ impl Channel<'_> {
         }
 
         // Advance the position a handful.
+        self.advance_position(seg_samples as f32, samplerate);
     }
 
     fn advance_position(&mut self, mut amount: f32, samplerate: u32) -> bool {
