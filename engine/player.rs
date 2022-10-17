@@ -10,8 +10,8 @@ pub enum Interpolation {
     #[default]
     None,
     Linear,
-    Sinc8,
-    // Sinc32,
+    Sinc16,
+    Sinc32,
     // Sinc64
 }
 
@@ -22,7 +22,7 @@ struct Channel<'a> {
     current_sample_index: u8,
     playing: bool,
     freq: f32,
-    position: f32,
+    position: f64,
     backwards: bool,
 
     porta_memory: u8, // Exx, Fxx, Gxx
@@ -44,12 +44,10 @@ fn vec_linear(vec: &Vec<i16>, index: f32) -> i16 {
     (vec[index.floor() as usize] as f32+(index-index.floor())*((vec[index.ceil() as usize] as f32-vec[index.floor() as usize] as f32)*(index-index.floor()))) as i16
 }
 
-fn vec_sinc(vec: &Vec<i16>, index: f32) -> f32 {
+fn vec_sinc(vec: &Vec<i16>, quality: i32, index: f32) -> f32 {
     let ix = index.floor();
     let fx = index - ix;
     let mut tmp = 0f32;
-
-    let quality: i32 = 8;
 
     for i in 1-quality..quality+1 {
         tmp += vec[((ix+i as f32+vec.len() as f32) % vec.len() as f32) as usize] as f32 * sinc(i as f32-fx)
@@ -218,17 +216,17 @@ impl Channel<'_> {
             if self.position as u32 <= sample.loop_start {
                 self.backwards = false
             } else {
-                self.position -= self.freq/samplerate as f32;
+                self.position -= self.freq as f64/samplerate as f64;
             }
         } else {
-            self.position += self.freq/samplerate as f32;
+            self.position += self.freq as f64/samplerate as f64;
         }
 
         if sample.loop_end > 0 {
             if self.position as u32 > sample.loop_end-1 {
                 match sample.loop_type {
-                    LoopType::Forward => self.position = sample.loop_start as f32,
-                    LoopType::PingPong => { self.backwards = true; self.position -= self.freq/samplerate as f32; }, // self.position -= 1.0 or 2.0 does not work as the program errors with out of bounds
+                    LoopType::Forward => self.position = sample.loop_start as f64,
+                    LoopType::PingPong => { self.backwards = true; self.position -= self.freq as f64/samplerate as f64; }, // self.position -= 1.0 or 2.0 does not work as the program errors with out of bounds
                     _ => {},
                 }
             }
@@ -241,11 +239,11 @@ impl Channel<'_> {
 
         if !self.playing { return 0 };
 
-        // FIXME detuning in uttitle.it
         match interpolation {
             Interpolation::None => (((sample.audio[self.position as usize]) as i32*32768) as f32*(self.volume as f32/64.0)*(sample.global_volume as f32/64.0)) as i32,
-            Interpolation::Linear => ( ((vec_linear(&sample.audio, self.position-1.0)) as i32*32768) as f32*(self.volume/64.0)*(sample.global_volume as f32/64.0)) as i32,
-            Interpolation::Sinc8 => ( ((vec_sinc(&sample.audio, self.position)) as i32*32768) as f32*(self.volume as f32/64.0)*(sample.global_volume as f32/64.0)) as i32
+            Interpolation::Linear => ( ((vec_linear(&sample.audio, (self.position-1.0) as f32 )) as i32*32768) as f32*(self.volume/64.0)*(sample.global_volume as f32/64.0)) as i32,
+            Interpolation::Sinc16 => ( ((vec_sinc(&sample.audio, 16, self.position as f32)) as i32*32768) as f32*(self.volume as f32/64.0)*(sample.global_volume as f32/64.0)) as i32,
+            Interpolation::Sinc32 => ( ((vec_sinc(&sample.audio, 32, self.position as f32)) as i32*32768) as f32*(self.volume as f32/64.0)*(sample.global_volume as f32/64.0)) as i32
         }
     }
 }
@@ -256,8 +254,8 @@ pub struct Player<'a> {
     pub samplerate: u32,
     pub interpolation: Interpolation,
 
-    current_position: u8,
-    current_pattern: u8,
+    pub current_position: u8,
+    pub current_pattern: u8,
     current_row: u16,
 
     current_tempo: u8,
@@ -312,7 +310,9 @@ impl Player<'_> {
         let mut out = 0i32;
 
         for c in self.channels.iter_mut() {
-            out = out.saturating_add(c.process(self.samplerate, self.interpolation));
+            if c.playing {
+                out = out.saturating_add(c.process(self.samplerate, self.interpolation));
+            }
         };
 
         if self.tick_counter >= ((self.samplerate as f32*2.5)/self.current_tempo as f32) as u32 {
@@ -445,7 +445,7 @@ impl Player<'_> {
                     if !matches!(col.effect, Effect::TonePorta(_)) && !matches!(col.vol, VolEffect::TonePorta(_)) {
                         channel.playing = true;
                         channel.position = match col.effect {
-                            Effect::SampleOffset(position) => { if position != 0 { channel.offset_memory = position }; channel.offset_memory as f32 * 256.0 },
+                            Effect::SampleOffset(position) => { if position != 0 { channel.offset_memory = position }; channel.offset_memory as f64 * 256.0 },
                             _ => 0.0
                         };
                         channel.freq = 2f32.powf((note as f32-60.0)/12.0)*self.module.samples[channel.current_sample_index as usize].base_frequency as f32;
