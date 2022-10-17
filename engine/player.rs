@@ -252,6 +252,7 @@ pub struct Player<'a> {
 
     tick_counter: u32,
     ticks_passed: u8,
+    tick_slab: u32,
 
     channels: [Channel<'a>;64],
 }
@@ -302,7 +303,7 @@ impl Player<'_> {
             out = out.saturating_add(c.process(self.samplerate, self.interpolation));
         };
 
-        if self.tick_counter >= ((self.samplerate as f32*2.5)/self.current_tempo as f32) as u32 {
+        if self.tick_counter >= self.tick_slab {
             self.ticks_passed += 1;
             self.tick_counter = 0;
             if self.ticks_passed >= self.current_speed {
@@ -335,6 +336,11 @@ impl Player<'_> {
         }
     }
 
+    fn set_tempo(&mut self, tempo: u8) {
+        self.current_tempo = tempo;
+        self.tick_slab = ((self.samplerate as f32*2.5)/self.current_tempo as f32) as u32; 
+    }
+
     fn advance_row(&mut self) {
         if self.current_row == 65535 { self.current_row = 0; self.ticks_passed = 0; return; };
 
@@ -348,7 +354,7 @@ impl Player<'_> {
         for col in row.iter() {
             match col.effect {
                 Effect::SetSpeed(speed) => self.current_speed = speed,
-                Effect::SetTempo(tempo) => self.current_tempo = tempo,
+                Effect::SetTempo(tempo) => self.set_tempo(tempo),
                 Effect::PosJump(position) => { pos_jump_enabled = true; pos_jump_to = position },
                 Effect::PatBreak(row) => { pat_break_enabled = true; pat_break_to = row },
                 _ => {}
