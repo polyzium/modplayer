@@ -236,7 +236,7 @@ impl Channel<'_> {
 
     fn process_segment(&mut self, sample: &Sample, seg_samples: u32, seg_ahead: u32, slab_slice: &mut [i32], samplerate: u32, interpolation: Interpolation) {
         // Make a buffer to store the result of the interpolation of the involved samples.
-        let interpolated: Vec<i32> = vec![0i32; seg_samples as usize];
+        let mut interpolated: Vec<i32> = vec![0i32; seg_samples as usize];
 
         let start = self.position as f32;
 
