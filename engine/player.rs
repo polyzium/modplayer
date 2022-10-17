@@ -207,7 +207,7 @@ impl Channel<'_> {
         let mut remaining: u32 = slab.len() as u32;
         let mut pos: u32 = 0;
 
-        while remaining > 0 {
+        while remaining > 0 && self.playing {
             // Figure out how long this segment is, and discount it from
             // remaining.
             let seg_ahead = if self.backwards {
@@ -279,7 +279,7 @@ impl Channel<'_> {
             };
 
             if self.backwards {
-                if (new_position as u32) < sample.loop_start {
+                if (new_position as u32) <= sample.loop_start {
                     let offs = sample.loop_start as f32 - new_position;
                     amount -= offs;
 
@@ -299,7 +299,7 @@ impl Channel<'_> {
                     _ => sample.loop_end
                 };
 
-                if (new_position as u32) > real_end {
+                if (new_position as u32) >= real_end {
                     let offs = real_end as f32 - new_position;
                     amount -= offs;
 
