@@ -312,31 +312,30 @@ impl Channel<'_> {
                     let offs = real_end - new_position;
                     amount -= offs;
 
-                    self.position = real_end as f32;
-                    self.backwards = match sample.loop_type {
-                        LoopType::PingPong => true,
-                        _ => false,
-                    };
+                    match sample.loop_type {
+                        LoopType::PingPong => {
+                            self.position = real_end;
+                            self.backwards = true;
+                        },
+
+                        LoopType::Forward => {
+                            self.position = sample.loop_start as f32;
+                        },
+
+                        _ => {
+                            // Stop playing if at the sample end.
+                            if new_position as usize >= sample.audio.len() {
+                                amount = 0.0;
+                                self.playing = false;
+                                self.backwards = false;
+                            }
+                        }
+                    }
                 }
 
                 else {
                     self.position = new_position;
                     amount = 0.0;
-                }
-
-                // If we're not looping, encountering the end while looping
-                // forwards should be the end.
-                if (new_position as usize) > sample.audio.len() {
-                    match sample.loop_type {
-                        LoopType::None => {
-                            self.playing = false;
-                            self.backwards = false;
-                        },
-
-                        _ => {},
-                    };
-
-                    break;
                 }
             }
         };
