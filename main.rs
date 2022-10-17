@@ -14,7 +14,10 @@ struct Args {
     file: String,
 
     #[arg(short, long, value_enum, default_value_t = Interpolation::Linear)]
-    interpolation: Interpolation
+    interpolation: Interpolation,
+
+    #[arg(short, long, default_value_t = 0)]
+    position: u8
 }
 
 fn main() {
@@ -26,6 +29,8 @@ fn main() {
 
     let mut player: Player = Player::from_module(&binding, 48000);
     player.interpolation = args.interpolation;
+    player.current_position = args.position;
+    player.current_pattern = player.module.playlist[player.current_position as usize];
 
 	let sdl_context = sdl2::init().unwrap();
     let audio_subsystem = sdl_context.audio().unwrap();
