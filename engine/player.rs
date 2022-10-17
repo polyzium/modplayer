@@ -431,15 +431,22 @@ impl Player<'_> {
     pub fn process_to_buffer(&mut self, buf: &mut [i32]) {
         let num_samples = buf.len();
         let total_counter = num_samples + self.tick_counter as usize;
-        let num_ticks = total_counter / self.tick_slab as usize;
+        let num_ticks = (total_counter as f64 / self.tick_slab as f64).floor() as usize;
         let extra_counter = total_counter % self.tick_slab as usize;
+
+        let mut this_pos: usize = 0;
+        let mut next_pos = self.tick_slab as usize - self.tick_counter as usize;
 
         buf.fill(0);
 
+        // Mix and process each tick
         for i in 0..num_ticks {
             for c in self.channels.iter_mut() {
-                c.add_to_slab(&mut buf[i * self.tick_slab as usize..], self.samplerate, self.interpolation);
+                c.add_to_slab(&mut buf[this_pos..next_pos], self.samplerate, self.interpolation);
             }
+
+            this_pos = next_pos;
+            next_pos = this_pos + self.tick_slab as usize;
 
             self.ticks_passed += 1;
 
@@ -449,6 +456,13 @@ impl Player<'_> {
             }
 
             self.process_tick();
+        }
+
+        // Mix any remaining audio
+        if this_pos < buf.len() {
+            for c in self.channels.iter_mut() {
+                c.add_to_slab(&mut buf[this_pos..], self.samplerate, self.interpolation);
+            }
         }
 
         self.tick_counter = extra_counter as u32;
