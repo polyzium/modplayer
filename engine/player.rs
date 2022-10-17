@@ -211,14 +211,20 @@ impl Channel<'_> {
             // Figure out how long this segment is, and discount it from
             // remaining.
             let seg_ahead = if self.backwards {
-                self.position as u32 - sample.loop_start
+                self.position - sample.loop_start as f32
             } else if sample.loop_end > 0 {
-                sample.loop_end as u32 - self.position as u32
+                sample.loop_end as f32 - self.position
             } else {
-                sample.audio.len() as u32 - self.position as u32
+                sample.audio.len() as f32 - self.position
             };
 
-            let mut seg_samples = (seg_ahead as u64 * samplerate as u64 / self.freq as u64) as u32;
+            let mut seg_samples = (seg_ahead * samplerate as f32 / self.freq as f32) as u32;
+
+            // Dirty hack to prevent infinite loops.
+            // FIXME: Find a more elegant solution!
+            if seg_samples == 0 {
+                seg_samples = 1;
+            }
 
             // Make sure we don't write past the slab's end!
             if seg_samples > remaining {
