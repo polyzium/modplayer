@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 #[derive(Default,Debug,Clone,Copy)]
 pub enum Note {
     #[default]
