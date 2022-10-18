@@ -56,6 +56,14 @@ fn vec_sinc(vec: &Vec<i16>, quality: i32, index: f32) -> f32 {
     tmp
 }
 
+fn period(freq: f32) -> f32 {
+    3546816.0/freq
+}
+
+fn freq_from_period(period: u16) -> f32 {
+    3546816.0/period as f32
+}
+
 impl Channel<'_> {
     fn porta_up(&mut self, linear: bool, mut value: u8) {
         if value != 0 {
@@ -71,11 +79,11 @@ impl Channel<'_> {
                 _ => self.freq = self.freq * 2f32.powf(4.0*value as f32/768.0), // Regular
             }
         } else { // Amiga slide
-            // FIXME this is a rough approximation without using periods, LUTs or any of that shit
+            // TODO fine slides
             match value & 0xF0 {
                 0xE0 => self.freq += (self.freq/8363.0)*8.0*value as f32,
                 0xF0 => self.freq += (self.freq/8363.0)*16.0*value as f32,
-                _ => self.freq += (self.freq/8363.0)*32.0*value as f32
+                _ => self.freq = freq_from_period((period(self.freq)-(value as f32)) as u16),
             }
         }
     }
@@ -94,11 +102,11 @@ impl Channel<'_> {
                 _ => self.freq = self.freq * 2f32.powf(-4.0*value as f32/768.0), // Regular
             }
         } else { // Amiga slide
-            // FIXME this is a rough approximation without using periods, LUTs or any of that shit
+            // TODO fine slides
             match value & 0xF0 {
                 0xE0 => self.freq -= (self.freq/8363.0)*8.0*value as f32,
                 0xF0 => self.freq -= (self.freq/8363.0)*16.0*value as f32,
-                _ => self.freq -= (self.freq/8363.0)*32.0*value as f32
+                _ => self.freq = freq_from_period((period(self.freq)+(value as f32)) as u16),
             }
         }
     }
@@ -130,14 +138,13 @@ impl Channel<'_> {
                 }
             }
         } else { // Amiga slides
-            // FIXME this is a rough approximation without using periods, LUTs or any of that shit
             if self.freq < desired_freq {
-                self.freq += (self.freq/8363.0)*32.0*value as f32;
+                self.freq = freq_from_period((period(self.freq)-(value as f32)) as u16);
                 if self.freq > desired_freq {
                     self.freq = desired_freq
                 }
             } else if self.freq > desired_freq {
-                self.freq -= (self.freq/8363.0)*32.0*value as f32;
+                self.freq = freq_from_period((period(self.freq)+(value as f32)) as u16);
                 if self.freq < desired_freq {
                     self.freq = desired_freq
                 }
