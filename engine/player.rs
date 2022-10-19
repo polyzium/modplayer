@@ -77,12 +77,14 @@ fn buf_sinc(from: &[i16], to: &mut [i32], backwards: bool, quality: isize, pingp
 
             let ix = if pingpong {
                 if ix < 0 {
-                    -ix
+                    (-ix).min(blen - 1)
+                } else if ix >= blen {
+                    (2 * blen - ix - 2).max(0)
                 } else {
-                    2 * blen - ix - 2
+                    ix
                 }
             } else {
-                (ix + blen) % blen
+                ((ix % blen) + blen) % blen
             };
 
             *res += from[ix as usize] as f32 * sinc(iter as f32 - fx);
