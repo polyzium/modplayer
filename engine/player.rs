@@ -60,6 +60,7 @@ fn buf_linear(from: &[i16], to: &mut [i32], backwards: bool) {
     for (i, res) in to.iter_mut().enumerate() {
         let x = i as f32 * ratio;
         let x = if backwards { flen - x - 1.0 } else { x };
+        let x = (x - 0.0001).max(0.0); /* ugly hack to prevent ix + 1 OOB */
         let ix = x.floor() as usize;
         let alpha = x - x.floor();
 
