@@ -766,6 +766,8 @@ impl Player<'_> {
                         && !matches!(col.vol, VolEffect::TonePorta(_))
                     {
                         channel.playing = true;
+                        channel.backwards = false;
+
                         channel.position = match col.effect {
                             Effect::SampleOffset(position) => {
                                 if position != 0 {
@@ -775,6 +777,7 @@ impl Player<'_> {
                             }
                             _ => 0.0,
                         };
+
                         channel.freq = 2f32.powf((note as f32 - 60.0) / 12.0)
                             * self.module.samples[channel.current_sample_index as usize]
                                 .base_frequency as f32;
