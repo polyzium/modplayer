@@ -113,6 +113,27 @@ fn freq_from_period(period: u16) -> f32 {
 }
 
 impl Channel<'_> {
+    pub fn new(module: &'_ Module) -> Channel<'_> {
+        Channel {
+            module: module,
+
+            current_sample_index: 0,
+            playing: false,
+            freq: 8363.0,
+            position: 0.0,
+            backwards: false,
+
+            porta_memory: 0,
+            last_note: 0,
+            offset_memory: 0,
+            volume_memory: 0,
+            retrigger_ticks: 0,
+
+            volume: 64.0,
+            // panning: 0
+        }
+    }
+
     fn porta_up(&mut self, linear: bool, mut value: u8) {
         if value != 0 {
             self.porta_memory = value;
@@ -504,7 +525,7 @@ pub struct Player<'a> {
     ticks_passed: u8,
     tick_slab: u32,
 
-    channels: [Channel<'a>; 64],
+    channels: Vec<Channel<'a>>,
 }
 
 impl Player<'_> {
@@ -526,25 +547,18 @@ impl Player<'_> {
             ticks_passed: 0,
             tick_slab: 0,
 
-            channels: array::from_fn(|_| Channel {
-                module: module,
-
-                current_sample_index: 0,
-                playing: false,
-                freq: 8363.0,
-                position: 0.0,
-                backwards: false,
-
-                porta_memory: 0,
-                last_note: 0,
-                offset_memory: 0,
-                volume_memory: 0,
-                retrigger_ticks: 0,
-
-                volume: 64.0,
-                // panning: 0
-            }),
+            channels: Vec::new(),
         };
+
+        player.channels = vec![
+            Channel::new(module);
+            module
+                .patterns
+                .iter()
+                .map(|x| x.iter().map(|x| x.len()).max().unwrap_or(0))
+                .max()
+                .unwrap_or(0)
+        ];
 
         player.tick_slab = player.compute_tick_slab();
 
@@ -713,12 +727,6 @@ impl Player<'_> {
     fn play_row(&mut self) {
         let row = &self.module.patterns[self.current_pattern as usize][self.current_row as usize];
 
-        print!(
-            "Position {}, Pattern {}, Row {}\x1b[K\r",
-            self.current_position, self.current_pattern, self.current_row
-        );
-        stdout().flush().unwrap();
-
         for (i, col) in row.iter().enumerate() {
             let channel = &mut self.channels[i];
 
@@ -777,6 +785,29 @@ impl Player<'_> {
                 Note::Off => channel.playing = false,
             }
         }
+
+        print!(
+            "[Position {}, Pattern {}, Row {}]\x1b[K\n\nChannels:\x1b[K\n",
+            self.current_position, self.current_pattern, self.current_row
+        );
+
+        for (i, channel) in self.channels.iter().enumerate() {
+            if !channel.playing {
+                println!(" {:>3} -\x1b[K", i + 1);
+            } else {
+                println!(
+                    " {:>3} : sample {:<4} volume {:<4} freq {:<6.2}\x1b[K",
+                    i + 1,
+                    channel.current_sample_index,
+                    channel.volume,
+                    channel.freq
+                );
+            }
+        }
+
+        print!("\x1b[{}F", self.channels.len() + 3);
+
+        stdout().flush().unwrap();
     }
 }
 
