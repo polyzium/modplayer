@@ -51,6 +51,12 @@ fn buf_linear(from: &[i16], to: &mut [i32], backwards: bool) {
     let ratio = (from.len() - 1) as f32 / to.len() as f32;
     let flen = from.len() as f32;
 
+    if from.len() == 1 {
+        // Special case handling
+        to.fill(from[0] as i32);
+        return;
+    }
+
     for (i, res) in to.iter_mut().enumerate() {
         let x = i as f32 * ratio;
         let x = if backwards { flen - x - 1.0 } else { x };
