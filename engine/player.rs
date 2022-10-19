@@ -48,13 +48,6 @@ fn sinc(x: f32) -> f32 {
 
 // Interpolation functions that operate on buffers.
 fn buf_linear(from: &[i16], to: &mut [i32], backwards: bool) {
-    // Sanity check.
-    if cfg!(debug) {
-        if to.len() == 0 || from.len() == 0 {
-            return;
-        }
-    }
-
     if from.len() == 1 {
         // Special case handling
         to.fill(from[0] as i32);
@@ -324,7 +317,15 @@ impl Channel<'_> {
 
             remaining -= seg_samples;
 
-            // Process this segment.
+            // Advance position.
+            pos += seg_samples;
+
+            // Sanity check - skip if segment is tiny.
+            if seg_samples == 0 || seg_ahead < 1 {
+                continue;
+            }
+
+            // Process this segment's audio.
             self.process_segment(
                 sample,
                 seg_samples,
@@ -333,7 +334,6 @@ impl Channel<'_> {
                 samplerate,
                 interpolation,
             );
-            pos += seg_samples;
         }
     }
 
