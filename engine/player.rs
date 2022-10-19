@@ -48,8 +48,12 @@ fn sinc(x: f32) -> f32 {
 
 // Interpolation functions that operate on buffers.
 fn buf_linear(from: &[i16], to: &mut [i32], backwards: bool) {
-    let ratio = (from.len() - 1) as f32 / to.len() as f32;
-    let flen = from.len() as f32;
+    // Sanity check.
+    if cfg!(debug) {
+        if to.len() == 0 || from.len() == 0 {
+            return;
+        }
+    }
 
     if from.len() == 1 {
         // Special case handling
@@ -57,13 +61,16 @@ fn buf_linear(from: &[i16], to: &mut [i32], backwards: bool) {
         return;
     }
 
+    let ratio = (from.len() - 1) as f32 / to.len() as f32;
+    let flen = from.len() as f32;
+
     for (i, res) in to.iter_mut().enumerate() {
         let x = i as f32 * ratio;
         let x = if backwards { flen - x - 1.0 } else { x };
         let ix = x.floor() as usize;
         let alpha = x - x.floor();
 
-        *res = (from[ix] as f32 * (1.0 - alpha) + from[ix + 1] as f32 * alpha) as i32;
+        *res = ((from[ix] as f32 * (1.0 - alpha) + from[ix + 1] as f32 * alpha) * 32768.0) as i32;
     }
 }
 
@@ -98,7 +105,7 @@ fn buf_sinc(from: &[i16], to: &mut [i32], backwards: bool, quality: isize, pingp
     }
 
     for (tn, res) in tmp.iter().zip(to.iter_mut()) {
-        *res = *tn as i32;
+        *res = (*tn * 32768.0) as i32;
     }
 }
 
@@ -455,7 +462,7 @@ impl Channel<'_> {
                 let ratio = from.len() as f32 / to.len() as f32;
                 for (iy, res) in to.iter_mut().enumerate() {
                     let ix = (iy as f32 * ratio) as usize;
-                    *res = from[ix] as i32;
+                    *res = from[ix] as i32 * 32768;
                 }
             }
             Interpolation::Linear => buf_linear(from, to, self.backwards),
