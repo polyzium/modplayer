@@ -321,7 +321,7 @@ impl Channel<'_> {
             pos += seg_samples;
 
             // Sanity check - skip if segment is tiny.
-            if seg_samples == 0 || seg_ahead < 1 {
+            if seg_samples == 0 || seg_ahead < 1.0 {
                 continue;
             }
 
