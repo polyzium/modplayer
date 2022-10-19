@@ -1,13 +1,13 @@
 mod engine;
 
-use engine::player::{Player, Interpolation};
 use engine::format_it::ITModule;
+use engine::player::{Interpolation, Player};
 
 use crate::engine::module::ModuleInterface;
 
 use clap::Parser;
 
-#[derive(Parser,Debug)]
+#[derive(Parser, Debug)]
 #[command(name = "Rust module player")]
 #[command(about = "Very barebones tracker module player (IT samples only for now)")]
 struct Args {
@@ -17,14 +17,17 @@ struct Args {
     interpolation: Interpolation,
 
     #[arg(short, long, default_value_t = 0)]
-    position: u8
+    position: u8,
 }
 
 fn main() {
     let args = Args::parse();
 
     let file = std::fs::File::open(args.file).unwrap();
-    let module: ITModule = ITModule::load(file).unwrap_or_else(|e| { eprintln!("{}", e); std::process::exit(1) });
+    let module: ITModule = ITModule::load(file).unwrap_or_else(|e| {
+        eprintln!("{}", e);
+        std::process::exit(1)
+    });
     let binding = module.module();
 
     let mut player: Player = Player::from_module(&binding, 48000);
@@ -32,25 +35,25 @@ fn main() {
     player.current_position = args.position;
     player.current_pattern = player.module.playlist[player.current_position as usize];
 
-	let sdl_context = sdl2::init().unwrap();
+    let sdl_context = sdl2::init().unwrap();
     let audio_subsystem = sdl_context.audio().unwrap();
 
-    let spec = sdl2::audio::AudioSpecDesired{ freq: Some(48000), channels: Some(1), samples: Some(512) };
+    let spec = sdl2::audio::AudioSpecDesired {
+        freq: Some(48000),
+        channels: Some(1),
+        samples: Some(512),
+    };
 
-    let device = audio_subsystem.open_playback(None, &spec, |_| {
-        player
-    }).unwrap();
+    let device = audio_subsystem
+        .open_playback(None, &spec, |_| player)
+        .unwrap();
 
     println!("Module name: {}", binding.name);
     device.resume();
 
-    ctrlc::set_handler(move || {
-        std::process::exit(0)
-    }).expect("error listening to interrupt");
+    ctrlc::set_handler(move || std::process::exit(0)).expect("error listening to interrupt");
 
-    loop {
-        
-    }
+    loop {}
 }
 
 /* fn format_note(note: u8) -> String {
