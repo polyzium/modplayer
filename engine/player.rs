@@ -578,30 +578,6 @@ impl Player<'_> {
         self.tick_counter = extra_counter as u32;
     }
 
-    /*
-    pub fn process(&mut self) -> i32 {
-        let mut out = 0i32;
-
-        for c in self.channels.iter_mut() {
-            out = out.saturating_add(c.process(self.samplerate, self.interpolation));
-        };
-
-        if self.tick_counter >= self.tick_slab {
-            self.ticks_passed += 1;
-            self.tick_counter = 0;
-            if self.ticks_passed >= self.current_speed {
-                self.advance_row();
-                self.play_row();
-            }
-            self.process_tick();
-        } else {
-            self.tick_counter += 1;
-        }
-
-        out
-    }
-    */
-
     fn process_tick(&mut self) {
         if self.current_row == 65535 {
             return;
