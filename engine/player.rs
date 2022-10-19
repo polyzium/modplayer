@@ -535,28 +535,41 @@ impl Player<'_> {
     }
 
     pub fn process_to_buffer(&mut self, buf: &mut [i32]) {
+        // The size of this buffer window, in samples.
         let num_samples = buf.len();
+
+        // How many samples since the previous tick boundary at the end of this
+        // buffer window.
         let total_counter = num_samples + self.tick_counter as usize;
-        let num_ticks = (total_counter as f64 / self.tick_slab as f64).floor() as usize;
+
+        // How many tick boundaries are within the buffer window.
+        let num_ticks = (total_counter as f32 / self.tick_slab as f32).floor() as usize;
+
+        // The final state of self.tick_counter.
         let extra_counter = total_counter % self.tick_slab as usize;
 
-        let mut this_pos: usize = 0;
-        let mut next_pos = self.tick_slab as usize - self.tick_counter as usize;
+        // The position of a tick boundary within the buffer window.
+        let tick_offs = self.tick_slab as usize - self.tick_counter as usize;
 
+        // How many samples to be rendered after the last tick boundary.
+        // Not the same as extra_counter - this only takes into account the
+        // CURRENT buffer window, not the past ones within the same tick.
+        let remaining = extra_counter.min(num_samples);
+
+        // Reset audio buffer.
         buf.fill(0);
 
-        // Mix and process each tick
-        for _ in 0..num_ticks {
+        // Mix and process each tick.
+        for i in 0i32..num_ticks as i32 {
+            let ipos = tick_offs as i32 + (i - 1) * self.tick_slab as i32;
+
             for c in self.channels.iter_mut() {
                 c.add_to_slab(
-                    &mut buf[this_pos..next_pos],
+                    &mut buf[ipos.max(0) as usize..(ipos + self.tick_slab as i32) as usize],
                     self.samplerate,
                     self.interpolation,
                 );
             }
-
-            this_pos = next_pos;
-            next_pos = this_pos + self.tick_slab as usize;
 
             self.ticks_passed += 1;
 
@@ -568,10 +581,14 @@ impl Player<'_> {
             self.process_tick();
         }
 
-        // Mix any remaining audio
-        if this_pos < buf.len() {
+        // Mix any remaining audio.
+        if remaining > 0 {
             for c in self.channels.iter_mut() {
-                c.add_to_slab(&mut buf[this_pos..], self.samplerate, self.interpolation);
+                c.add_to_slab(
+                    &mut buf[num_samples - remaining..],
+                    self.samplerate,
+                    self.interpolation,
+                );
             }
         }
 
