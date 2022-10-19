@@ -317,11 +317,9 @@ impl Channel<'_> {
 
             remaining -= seg_samples;
 
-            // Advance position.
-            pos += seg_samples;
-
             // Sanity check - skip if segment is tiny.
             if seg_samples == 0 || seg_ahead < 1.0 {
+                pos += seg_samples.max(1);
                 continue;
             }
 
@@ -334,6 +332,9 @@ impl Channel<'_> {
                 samplerate,
                 interpolation,
             );
+
+            // Advance position.
+            pos += seg_samples;
         }
     }
 
