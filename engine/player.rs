@@ -333,22 +333,29 @@ impl Channel<'_> {
         samplerate: u32,
         interpolation: Interpolation,
     ) {
-        // Make a buffer to store the result of the interpolation of the involved samples.
+        // Make a buffer to store the result of the interpolation of the
+        // involved samples.
         let mut interpolated: Vec<i32> = vec![0i32; seg_samples as usize];
         let freq = self.freq as f64 / samplerate as f64;
 
+        // Find the correct indices for the slice of sample audio.
+        let pos_a = self.position as usize;
+        let pos_b = (self.position
+            + seg_samples as f64 * freq * if self.backwards { -1.0 } else { 1.0 })
+            as usize;
+
+        let pos_1 = if self.backwards { pos_b } else { pos_a };
+        let pos_2 = if self.backwards { pos_a } else { pos_b };
+
         // Interpolate relevant sample audio;
         self.interpolate_buffers(
-            &sample.audio[self.position as usize
-                ..(self.position
-                    + seg_samples as f64 * freq * if self.backwards { -1.0 } else { 1.0 })
-                    as usize],
+            &sample.audio[pos_1..pos_2],
             &mut interpolated,
             interpolation,
         );
 
         // Apply volumes to interpolated audio.
-        self.apply_volumes(&mut interpolated);
+        self.apply_volumes(&mut interpolated); 
 
         // Apply the interpolated buffer to slab_slice.
         for (ival, oval) in interpolated.iter().zip(slab_slice.iter_mut()) {
