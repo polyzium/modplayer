@@ -40,20 +40,46 @@ fn sinc(x: f32) -> f32 {
     (x*PI).sin()/(x*PI)
 }
 
-fn vec_linear(vec: &Vec<i16>, index: f32) -> i16 {
-    (vec[index.floor() as usize] as f32+(index-index.floor())*((vec[index.ceil() as usize] as f32-vec[index.floor() as usize] as f32)*(index-index.floor()))) as i16
+// Interpolation functions that operate on buffers.
+fn buf_linear(from: &[i16], to: &mut [i32], backwards: bool) {
+    let ratio = (from.len() - 1) as f32 / to.len() as f32;
+    let flen = from.len() as f32;
+
+    for (i, res) in to.iter_mut().enumerate() {
+        let x = i as f32 * ratio;
+        let x = if backwards { flen - x - 1.0 } else { x };
+        let ix = x.floor() as usize;
+        let alpha = x - x.floor();
+
+        *res = (from[ix] as f32 * (1.0 - alpha) + from[ix + 1] as f32 * alpha) as i32;
+    }
 }
 
-fn vec_sinc(vec: &Vec<i16>, quality: i32, index: f32) -> f32 {
-    let ix = index.floor();
-    let fx = index - ix;
-    let mut tmp = 0f32;
+fn buf_sinc(from: &[i16], to: &mut [i32], backwards: bool, quality: isize, pingpong: bool) {
+    let ratio = (from.len() - 1) as f32 / to.len() as f32;
+    let blen = from.len() as isize;
+    let flen = blen as f32;
+    let mut tmp = vec![0.0f32; to.len() as usize];
 
-    for i in 1-quality..quality+1 {
-        tmp += vec[((ix+i as f32+vec.len() as f32) % vec.len() as f32) as usize] as f32 * sinc(i as f32-fx)
-    };
+    for iter in (1isize - quality)..(quality + 1isize) {
+        for (i, res) in tmp.iter_mut().enumerate() {
+            let x = i as f32 * ratio;
+            let x = if backwards { flen - x - 1.0 } else { x };
+            let cx = x.floor();
+            let ix = cx as isize + iter;
+            let fx = x - cx;
 
-    tmp
+            let ix = if pingpong {
+                if ix < 0 { -ix } else { 2 * blen - ix - 2 }
+            } else { (ix + blen) % blen };
+
+            *res += from[ix as usize] as f32 * sinc(iter as f32 - fx);
+        }
+    }
+
+    for (tn, res) in tmp.iter().zip(to.iter_mut()) {
+        *res = *tn as i32;
+    }
 }
 
 fn period(freq: f32) -> f32 {
@@ -261,25 +287,22 @@ impl Channel<'_> {
     fn process_segment(&mut self, sample: &Sample, seg_samples: u32, seg_ahead: f64, slab_slice: &mut [i32], samplerate: u32, interpolation: Interpolation) {
         // Make a buffer to store the result of the interpolation of the involved samples.
         let mut interpolated: Vec<i32> = vec![0i32; seg_samples as usize];
-
-        let start = self.position as f64;
         let freq = self.freq as f64 / samplerate as f64;
 
-        // NOTE: There is probably a better way to write this, than mostly the
-        // same thing but with subtraction on one side and addition on the
-        // other. FIXME: do that lol. 
-        if self.backwards {
-            for (i, val) in interpolated.iter_mut().enumerate() {
-                *val = self.interpolation(sample, interpolation, start - (i as f64 * freq));
-            }
-        }
+        // Interpolate relevant sample audio;
+        self.interpolate_buffers(
+            &sample.audio[
+                self.position as usize..(
+                    self.position +
+                    seg_samples as f64 * freq *
+                    if self.backwards { -1.0 } else { 1.0 }
+                ) as usize],
+            &mut interpolated,
+            interpolation);
 
-        else {
-            for (i, val) in interpolated.iter_mut().enumerate() {
-                *val = self.interpolation(sample, interpolation, start + (i as f64 * freq));
-            }
-        }
-        
+        // Apply volumes to interpolated audio.
+        self.apply_volumes(&mut interpolated);
+
         // Apply the interpolated buffer to slab_slice.
         for (ival, oval) in interpolated.iter().zip(slab_slice.iter_mut()) {
             *oval = oval.saturating_add(*ival);
@@ -362,12 +385,35 @@ impl Channel<'_> {
         true
     }
 
-    fn interpolation(&self, sample: &Sample, interpolation: Interpolation, at: f64) -> i32 {
+    fn interpolate_buffers(&self, from: &[i16], to: &mut [i32], interpolation: Interpolation) {
+        let sample = &self.module.samples[self.current_sample_index as usize];
+        let pingpong = match sample.loop_type {
+            LoopType::PingPong => true,
+            _ => false
+        };
+
         match interpolation {
-            Interpolation::None => (((sample.audio[at as usize]) as i32*32768) as f32*(self.volume as f32/64.0)*(sample.global_volume as f32/64.0)) as i32,
-            Interpolation::Linear => ( ((vec_linear(&sample.audio, (at-1.0) as f32 )) as i32*32768) as f32*(self.volume/64.0)*(sample.global_volume as f32/64.0)) as i32,
-            Interpolation::Sinc16 => ( ((vec_sinc(&sample.audio, 16, at as f32)) as i32*32768) as f32*(self.volume as f32/64.0)*(sample.global_volume as f32/64.0)) as i32,
-            Interpolation::Sinc32 => ( ((vec_sinc(&sample.audio, 32, at as f32)) as i32*32768) as f32*(self.volume as f32/64.0)*(sample.global_volume as f32/64.0)) as i32
+            Interpolation::None => {
+                let ratio = from.len() as f32 / to.len() as f32;
+                for (iy, res) in to.iter_mut().enumerate() {
+                    let ix = (iy as f32 * ratio) as usize;
+                    *res = from[ix] as i32;
+                }
+            },
+            Interpolation::Linear => buf_linear(from, to, self.backwards),
+            Interpolation::Sinc16 => buf_sinc(from, to, self.backwards, 16, pingpong),
+            Interpolation::Sinc32 => buf_sinc(from, to, self.backwards, 32, pingpong),
+        };
+    }
+
+    fn apply_volumes(&self, at: &mut [i32]) {
+        let sample = &self.module.samples[self.current_sample_index as usize];
+        let sample_vol = sample.global_volume as f32 / 64.0;
+        let global_vol = self.volume / 64.0;
+        let total_vol = sample_vol * global_vol;
+
+        for val in at.iter_mut() {
+            *val = (*val as f32 * total_vol) as i32;
         }
     }
 }
@@ -448,7 +494,7 @@ impl Player<'_> {
         buf.fill(0);
 
         // Mix and process each tick
-        for i in 0..num_ticks {
+        for _ in 0..num_ticks {
             for c in self.channels.iter_mut() {
                 c.add_to_slab(&mut buf[this_pos..next_pos], self.samplerate, self.interpolation);
             }
