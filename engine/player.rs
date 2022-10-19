@@ -799,7 +799,7 @@ impl Player<'_> {
                 println!(" {:>3} -\x1b[K", i + 1);
             } else {
                 println!(
-                    " {:>3} : sample {:<4} volume {:<4} freq {:<6.2}\x1b[K",
+                    " {:>3} : sample {:<4}  volume {:>05.2}   freq {:<6.2}\x1b[K",
                     i + 1,
                     channel.current_sample_index,
                     channel.volume,
