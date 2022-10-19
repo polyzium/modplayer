@@ -355,7 +355,7 @@ impl Channel<'_> {
         );
 
         // Apply volumes to interpolated audio.
-        self.apply_volumes(&mut interpolated); 
+        self.apply_volumes(&mut interpolated);
 
         // Apply the interpolated buffer to slab_slice.
         for (ival, oval) in interpolated.iter().zip(slab_slice.iter_mut()) {
