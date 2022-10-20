@@ -1,5 +1,4 @@
 use std::{
-    array,
     f32::consts::PI,
     io::{stdout, Write},
 };
@@ -41,9 +40,10 @@ struct Channel<'a> {
 }
 
 fn sinc(x: f32) -> f32 {
-    if x <= 0.0001 && x >= -0.0001 {
+    if { -0.0001..=0.0001 }.contains(&x) {
         return 1.0;
     };
+
     (x * PI).sin() / (x * PI)
 }
 
@@ -62,6 +62,7 @@ fn buf_linear(from: &[i16], to: &mut [i32], backwards: bool) {
         let x = i as f32 * ratio;
         let x = if backwards { flen - x - 1.0 } else { x };
         let x = (x - 0.0001).max(0.0); /* ugly hack to prevent ix + 1 OOB */
+
         let ix = x.floor() as usize;
         let alpha = x - x.floor();
 
@@ -115,7 +116,7 @@ fn freq_from_period(period: u16) -> f32 {
 impl Channel<'_> {
     pub fn new(module: &'_ Module) -> Channel<'_> {
         Channel {
-            module: module,
+            module,
 
             current_sample_index: 0,
             playing: false,
@@ -144,9 +145,9 @@ impl Channel<'_> {
         if linear {
             match value & 0xF0 {
                 // Detect fine-iness
-                0xE0 => self.freq = self.freq * 2f32.powf((value & 0x0F) as f32 / 768.0), // Extra fine
-                0xF0 => self.freq = self.freq * 2f32.powf(2.0 * (value & 0x0F) as f32 / 768.0), // Fine
-                _ => self.freq = self.freq * 2f32.powf(4.0 * value as f32 / 768.0), // Regular
+                0xE0 => self.freq *= 2f32.powf((value & 0x0F) as f32 / 768.0),        // Extra fine
+                0xF0 => self.freq *= 2f32.powf(2.0 * (value & 0x0F) as f32 / 768.0),  // Fine
+                _ => self.freq *= 2f32.powf(4.0 * value as f32 / 768.0),              // Regular
             }
         } else {
             // Amiga slide
@@ -169,9 +170,9 @@ impl Channel<'_> {
         if linear {
             match value & 0xF0 {
                 // Detect fine-iness
-                0xE0 => self.freq = self.freq * 2f32.powf(-((value & 0x0F) as f32) / 768.0), // Extra fine
-                0xF0 => self.freq = self.freq * 2f32.powf(-2.0 * (value & 0x0F) as f32 / 768.0), // Fine
-                _ => self.freq = self.freq * 2f32.powf(-4.0 * value as f32 / 768.0), // Regular
+                0xE0 => self.freq *= 2f32.powf(-((value & 0x0F) as f32) / 768.0),      // Extra fine
+                0xF0 => self.freq *= 2f32.powf(-2.0 * (value & 0x0F) as f32 / 768.0),  // Fine
+                _ => self.freq *= 2f32.powf(-4.0 * value as f32 / 768.0),              // Regular
             }
         } else {
             // Amiga slide
@@ -191,9 +192,8 @@ impl Channel<'_> {
             value = self.porta_memory;
         }
 
-        match note {
-            Note::On(key) => self.last_note = key,
-            _ => {}
+        if let Note::On(key) = note {
+            self.last_note = key;
         }
 
         let desired_freq = 2f32.powf((self.last_note as f32 - 60.0) / 12.0)
@@ -201,12 +201,12 @@ impl Channel<'_> {
 
         if linear {
             if self.freq < desired_freq {
-                self.freq = self.freq * 2f32.powf(4.0 * value as f32 / 768.0);
+                self.freq *= 2f32.powf(4.0 * value as f32 / 768.0);
                 if self.freq > desired_freq {
                     self.freq = desired_freq
                 }
             } else if self.freq > desired_freq {
-                self.freq = self.freq * 2f32.powf(-4.0 * value as f32 / 768.0);
+                self.freq *= 2f32.powf(-4.0 * value as f32 / 768.0);
                 if self.freq < desired_freq {
                     self.freq = desired_freq
                 }
@@ -405,7 +405,7 @@ impl Channel<'_> {
 
     fn advance_position(&mut self, mut amount: f64) -> bool {
         let sample = &self.module.samples[self.current_sample_index as usize];
-        if !self.playing || sample.audio.len() == 0 {
+        if !self.playing || sample.audio.is_empty() {
             return false;
         };
 
@@ -467,7 +467,7 @@ impl Channel<'_> {
             }
         }
 
-        if !self.playing || sample.audio.len() == 0 {
+        if !self.playing || sample.audio.is_empty() {
             return false;
         };
 
@@ -476,10 +476,7 @@ impl Channel<'_> {
 
     fn interpolate_buffers(&self, from: &[i16], to: &mut [i32], interpolation: Interpolation) {
         let sample = &self.module.samples[self.current_sample_index as usize];
-        let pingpong = match sample.loop_type {
-            LoopType::PingPong => true,
-            _ => false,
-        };
+        let pingpong = matches!(sample.loop_type, LoopType::PingPong);
 
         match interpolation {
             Interpolation::None => {
