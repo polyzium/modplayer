@@ -55,7 +55,7 @@ fn buf_linear(from: &[i16], to: &mut [i32], backwards: bool) {
         return;
     }
 
-    let ratio = (from.len() - 1) as f32 / to.len() as f32;
+    let ratio = (from.len() - 1) as f32 / (to.len() - 1) as f32;
     let flen = from.len() as f32;
 
     for (i, res) in to.iter_mut().enumerate() {
