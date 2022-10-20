@@ -790,7 +790,7 @@ impl Player<'_> {
         }
 
         print!(
-            "[Position {}, Pattern {}, Row {}]\x1b[K\n\nChannels:\x1b[K\n",
+            "[Position {}, Pattern {}, Row {}]\x1b[K\n\x1b[K\nChannels:\x1b[K\n",
             self.current_position, self.current_pattern, self.current_row
         );
 
