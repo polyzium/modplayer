@@ -71,30 +71,27 @@ fn buf_linear(from: &[i16], to: &mut [i32], backwards: bool) {
 }
 
 fn buf_sinc(from: &[i16], to: &mut [i32], backwards: bool, quality: isize, pingpong: bool) {
-    let ratio = (from.len() - 1) as f32 / to.len() as f32;
+    let ratio = (from.len() - 1) as f32 / (to.len() - 1) as f32;
     let blen = from.len() as isize;
     let flen = blen as f32;
+    let flbackward = flen - 1.0;
     let mut tmp = vec![0.0f32; to.len() as usize];
 
     for iter in (1isize - quality)..(quality + 1isize) {
         for (i, res) in tmp.iter_mut().enumerate() {
             let x = i as f32 * ratio;
             let x = if backwards { flen - x - 1.0 } else { x };
-            let cx = x.floor();
-            let ix = cx as isize + iter;
-            let fx = x - cx;
+            let x = (x - 0.0001).max(0.0);
 
-            let ix = if pingpong {
-                if ix < 0 {
-                    (-ix).min(blen - 1)
-                } else if ix >= blen {
-                    (2 * blen - ix - 2).max(0)
-                } else {
-                    ix
-                }
-            } else {
-                ((ix % blen) + blen) % blen
-            };
+            let ix = x.floor() + iter as f32;
+
+            let perpos = ((ix % flen) + flen) % flen;
+            let saw_dir = ((((ix / flen) % 2.0) + 2.0) % 2.0).floor();
+
+            let isbackward = (pingpong && saw_dir != backwards as u8 as f32) as u32 as f32;
+            let ix = perpos * (1.0 + -2.0 * isbackward) + flbackward * isbackward;
+
+            let fx = x - x.floor();
 
             *res += from[ix as usize] as f32 * sinc(iter as f32 - fx);
         }
