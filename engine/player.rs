@@ -23,6 +23,8 @@ pub enum Interpolation {
 struct Channel<'a> {
     module: &'a Module,
 
+    pub player_volume: f32,
+
     current_sample_index: u8,
     playing: bool,
     freq: f32,
@@ -108,13 +110,14 @@ fn freq_from_period(period: u16) -> f32 {
     3546816.0 / period as f32
 }
 
-impl Channel<'_> {
-    pub fn new(module: &'_ Module) -> Channel<'_> {
+impl<'a> Channel<'a> {
+    pub fn new(module: &'a Module, player_volume: f32) -> Channel<'a> {
         Channel {
             module,
 
             current_sample_index: 0,
             playing: false,
+            player_volume,
             freq: 8363.0,
             position: 0.0,
             backwards: false,
@@ -492,7 +495,7 @@ impl Channel<'_> {
         let sample = &self.module.samples[self.current_sample_index as usize];
         let sample_vol = sample.global_volume as f32 / 64.0;
         let global_vol = self.volume / 64.0;
-        let total_vol = sample_vol * global_vol;
+        let total_vol = sample_vol * global_vol * self.player_volume;
 
         for val in at.iter_mut() {
             *val = (*val as f32 * total_vol) as i32;
@@ -521,7 +524,7 @@ pub struct Player<'a> {
 }
 
 impl Player<'_> {
-    pub fn from_module(module: &Module, samplerate: u32) -> Player<'_> {
+    pub fn from_module(module: &Module, samplerate: u32, player_volume: f32) -> Player<'_> {
         let mut player = Player {
             module,
 
@@ -543,7 +546,7 @@ impl Player<'_> {
         };
 
         player.channels = vec![
-            Channel::new(module);
+            Channel::new(module, player_volume);
             module
                 .patterns
                 .iter()
@@ -555,6 +558,12 @@ impl Player<'_> {
         player.tick_slab = player.compute_tick_slab();
 
         player
+    }
+
+    pub fn set_player_volume(&mut self, new_volume: f32) {
+        for channel in &mut self.channels {
+            channel.player_volume = new_volume;
+        }
     }
 
     pub fn process_to_buffer(&mut self, buf: &mut [i32]) {
