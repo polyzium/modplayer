@@ -18,6 +18,9 @@ struct Args {
 
     #[arg(short, long, default_value_t = 0)]
     position: u8,
+
+    #[arg(short, long, default_value_t = 40.0)]
+    volume: f32,
 }
 
 fn main() {
@@ -30,7 +33,7 @@ fn main() {
     });
     let binding = module.module();
 
-    let mut player: Player = Player::from_module(&binding, 48000);
+    let mut player: Player = Player::from_module(&binding, 48000, args.volume / 100.0);
     player.interpolation = args.interpolation;
     player.current_position = args.position;
     player.current_pattern = player.module.playlist[player.current_position as usize];
