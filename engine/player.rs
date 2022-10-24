@@ -1,5 +1,5 @@
 use std::{
-    f32::consts::PI,
+    f64::consts::PI,
     io::{stdout, Write},
 };
 
@@ -42,7 +42,7 @@ struct Channel<'a> {
     // panning: i8,
 }
 
-fn sinc(x: f32) -> f32 {
+fn sinc(x: f64) -> f64 {
     if { -0.0001..=0.0001 }.contains(&x) {
         return 1.0;
     };
@@ -78,7 +78,7 @@ fn buf_sinc(from: &[i16], to: &mut [i32], backwards: bool, quality: isize, pingp
     let blen = from.len() as isize;
     let flen = blen as f32;
     let flbackward = flen - 1.0;
-    let mut tmp = vec![0.0f32; to.len() as usize];
+    let mut tmp = vec![0.0f64; to.len() as usize];
 
     for iter in (1isize - quality)..(quality + 1isize) {
         for (i, res) in tmp.iter_mut().enumerate() {
@@ -95,7 +95,7 @@ fn buf_sinc(from: &[i16], to: &mut [i32], backwards: bool, quality: isize, pingp
 
             let fx = (1.0 * isbackward) + x - x.floor() * (1.0 - 2.0 * isbackward);
 
-            *res += from[ix as usize] as f32 * sinc(iter as f32 - fx);
+            *res += from[ix as usize] as f64 * sinc(iter as f64 - fx as f64);
         }
     }
 
