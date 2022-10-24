@@ -61,12 +61,11 @@ fn buf_linear(from: &[i16], to: &mut [i32], backwards: bool) {
     for (i, res) in to.iter_mut().enumerate() {
         let x = i as f32 * ratio;
         let x = if backwards { flen - x - 1.0 } else { x };
-        let x = (x - 0.0001).max(0.0); /* ugly hack to prevent ix + 1 OOB */
 
         let ix = x.floor() as usize;
         let alpha = x - x.floor();
 
-        *res = ((from[ix] as f32 * (1.0 - alpha) + from[ix + 1] as f32 * alpha) * 32768.0) as i32;
+        *res = ((from[ix] as f32 * (1.0 - alpha) + from[(ix + 1) % from.len()] as f32 * alpha) * 32768.0) as i32;
     }
 }
 
@@ -81,7 +80,6 @@ fn buf_sinc(from: &[i16], to: &mut [i32], backwards: bool, quality: isize, pingp
         for (i, res) in tmp.iter_mut().enumerate() {
             let x = i as f32 * ratio;
             let x = if backwards { flen - x - 1.0 } else { x };
-            let x = (x - 0.0001).max(0.0);
 
             let ix = x.floor() + iter as f32;
 
