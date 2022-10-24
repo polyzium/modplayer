@@ -13,7 +13,7 @@ pub enum Interpolation {
     #[default]
     None,
     Linear,
-    Sinc5,
+    Sinc4,
     Sinc8,
     Sinc16,
     Sinc32,
@@ -487,7 +487,7 @@ impl<'a> Channel<'a> {
                 }
             }
             Interpolation::Linear => buf_linear(from, to, self.backwards),
-            Interpolation::Sinc5 => buf_sinc(from, to, self.backwards, 5, pingpong),
+            Interpolation::Sinc4 => buf_sinc(from, to, self.backwards, 4, pingpong),
             Interpolation::Sinc8 => buf_sinc(from, to, self.backwards, 8, pingpong),
             Interpolation::Sinc16 => buf_sinc(from, to, self.backwards, 16, pingpong),
             Interpolation::Sinc32 => buf_sinc(from, to, self.backwards, 32, pingpong),
