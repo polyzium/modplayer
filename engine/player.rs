@@ -51,64 +51,67 @@ fn sinc(x: f64) -> f64 {
 }
 
 // Interpolation functions that operate on buffers.
-fn buf_linear(from: &[i16], to: &mut [i32], backwards: bool) {
+fn buf_linear(from: &[i16], start: f64, end: f64, to: &mut [i32], backwards: bool) {
     if from.len() == 1 {
         // Special case handling
         to.fill(from[0] as i32);
         return;
     }
 
-    let ratio = (from.len() as f32 - 1.0) as f32 / (to.len() as f32 - 1.0);
-    let flen = from.len() as f32;
+    let width = end - start;
+
+    let ratio = width / (to.len() as f64);
 
     for (i, res) in to.iter_mut().enumerate() {
-        let x = (i as f32) * (ratio);
-        let x = if backwards { flen - x - 1.0 } else { x };
+        let x = (i as f64) * (ratio);
+        let x = if backwards { end - x } else { start + x };
+        let ix = x.floor();
 
-        let ix = x.floor() as usize;
-        let alpha = x - x.floor();
+        let alpha = if backwards { x - ix } else { ix + 1.0 - x };
+        let ix2 = ix + if backwards { 1.0 } else { -1.0 };
 
-        *res = ((from[ix] as f32 * (1.0 - alpha) + from[(ix + 1) % from.len()] as f32 * alpha)
-            * 32768.0) as i32;
+        let val = from[ix as usize] as f64 * (1.0 - alpha) + from[ix2 as usize] as f64 * alpha;
+
+        *res = (val * 32768.0) as i32;
     }
 }
 
 fn buf_sinc(
     from: &[i16],
+    start: f64,
+    end: f64,
     to: &mut [i32],
     backwards: bool,
     quality: isize,
     pingpong: bool,
 ) {
-    let ratio = (from.len() as f32 - 1.0) as f32 / (to.len() as f32 - 1.0);
-    let blen = from.len() as isize;
-    let flen = blen as f32;
-    let flbackward = flen - 1.0;
-    let mut tmp = vec![0.0f64; to.len() as usize];
+    let width = end - start;
 
-    for iter in (1isize - quality)..(quality + 1isize) {
-        for (i, res) in tmp.iter_mut().enumerate() {
-            let x = i as f32 * ratio;
-            let x = if backwards { flen - x - 1.0 } else { x };
+    let ratio = width / (to.len() as f64 - 1.0);
+    let flen = from.len() as f64;
 
-            let ix = x + iter as f32;
+    for (i, res) in to.iter_mut().enumerate() {
+        let cx = i as f64 * ratio;
+        let cx = if backwards { end - cx } else { start + cx };
 
-            let perpos = ((ix % flen) + flen) % flen;
-            let saw_dir = ((((ix / flen) % 2.0) + 2.0) % 2.0).floor();
+        *res = (((1isize - quality)..(quality + 1isize))
+            .map(|iter| {
+                let x = cx + if backwards { -iter } else { iter } as f64;
+                let x = if pingpong {
+                    if x < 0.0 {
+                        -x
+                    } else if x >= flen {
+                        flen - x - 1.0
+                    } else {
+                        x
+                    }
+                } else { ((x % flen) + flen) % flen };
 
-            let isbackward =
-                (((pingpong && saw_dir == 1.0) != backwards) as u8 as f32) as u32 as f32;
-            let ix = (perpos * (1.0 - 2.0 * isbackward) + flbackward * isbackward);
-            let ixf = ix.floor();
+                let ix = x.floor();
 
-            let fx = ix - ixf;
-
-            *res += from[ix as usize] as f64 * sinc(iter as f64 - fx as f64);
-        }
-    }
-
-    for (tn, res) in tmp.iter().zip(to.iter_mut()) {
-        *res = (*tn * 32768.0) as i32;
+                from[ix as usize] as f64 * sinc(ix - cx) * 32768.0
+            })
+            .sum::<f64>()) as i32;
     }
 }
 
@@ -267,6 +270,7 @@ impl<'a> Channel<'a> {
         if self.volume > 64.0 {
             self.volume = 64.0
         };
+
         if self.volume < 0.0 {
             self.volume = 0.0
         }
@@ -387,23 +391,13 @@ impl<'a> Channel<'a> {
         let width = seg_samples as f64 * freq * if self.backwards { -1.0 } else { 1.0 };
         let end = self.position + width;
 
-        let pos_1 = if self.backwards {
-            end.floor()
-        } else {
-            self.position.floor()
-        } as usize;
-
-        let pos_2 = if self.backwards {
-            self.position.ceil()
-        } else {
-            end.ceil()
-        } as usize;
-
         // Interpolate relevant sample audio;
         self.interpolate_buffers(
-            &sample.audio[pos_1..pos_2],
+            &sample.audio,
+            if self.backwards { end } else { self.position },
+            if self.backwards { self.position } else { end },
             &mut interpolated,
-            interpolation
+            interpolation,
         );
 
         // Apply volumes to interpolated audio.
@@ -492,25 +486,28 @@ impl<'a> Channel<'a> {
     fn interpolate_buffers(
         &self,
         from: &[i16],
+        start: f64,
+        end: f64,
         to: &mut [i32],
         interpolation: Interpolation,
     ) {
         let sample = &self.module.samples[self.current_sample_index as usize];
         let pingpong = matches!(sample.loop_type, LoopType::PingPong);
+        let width = end - start;
 
         match interpolation {
             Interpolation::None => {
-                let ratio = from.len() as f32 / to.len() as f32;
+                let ratio = width / to.len() as f64;
                 for (iy, res) in to.iter_mut().enumerate() {
-                    let ix = (iy as f32 * ratio) as usize;
+                    let ix = (start + iy as f64 * ratio) as usize;
                     *res = from[ix] as i32 * 32768;
                 }
             }
-            Interpolation::Linear => buf_linear(from, to, self.backwards),
-            Interpolation::Sinc4 => buf_sinc(from, to, self.backwards, 4, pingpong),
-            Interpolation::Sinc8 => buf_sinc(from, to, self.backwards, 8, pingpong),
-            Interpolation::Sinc16 => buf_sinc(from, to, self.backwards, 16, pingpong),
-            Interpolation::Sinc32 => buf_sinc(from, to, self.backwards, 32, pingpong),
+            Interpolation::Linear => buf_linear(from, start, end, to, self.backwards),
+            Interpolation::Sinc4 => buf_sinc(from, start, end, to, self.backwards, 4, pingpong),
+            Interpolation::Sinc8 => buf_sinc(from, start, end, to, self.backwards, 8, pingpong),
+            Interpolation::Sinc16 => buf_sinc(from, start, end, to, self.backwards, 16, pingpong),
+            Interpolation::Sinc32 => buf_sinc(from, start, end, to, self.backwards, 32, pingpong),
         };
     }
 
