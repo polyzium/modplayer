@@ -58,11 +58,11 @@ fn buf_linear(from: &[i16], to: &mut [i32], backwards: bool) {
         return;
     }
 
-    let ratio = (from.len() - 1) as f32 / (to.len() - 1) as f32;
+    let ratio = (from.len() as f32 - 1.0) as f32 / (to.len() as f32 - 1.0);
     let flen = from.len() as f32;
 
     for (i, res) in to.iter_mut().enumerate() {
-        let x = i as f32 * ratio;
+        let x = (i as f32) * (ratio);
         let x = if backwards { flen - x - 1.0 } else { x };
 
         let ix = x.floor() as usize;
@@ -73,8 +73,14 @@ fn buf_linear(from: &[i16], to: &mut [i32], backwards: bool) {
     }
 }
 
-fn buf_sinc(from: &[i16], to: &mut [i32], backwards: bool, quality: isize, pingpong: bool) {
-    let ratio = (from.len() - 1) as f32 / (to.len() - 1) as f32;
+fn buf_sinc(
+    from: &[i16],
+    to: &mut [i32],
+    backwards: bool,
+    quality: isize,
+    pingpong: bool,
+) {
+    let ratio = (from.len() as f32 - 1.0) as f32 / (to.len() as f32 - 1.0);
     let blen = from.len() as isize;
     let flen = blen as f32;
     let flbackward = flen - 1.0;
@@ -85,15 +91,17 @@ fn buf_sinc(from: &[i16], to: &mut [i32], backwards: bool, quality: isize, pingp
             let x = i as f32 * ratio;
             let x = if backwards { flen - x - 1.0 } else { x };
 
-            let ix = x.floor() + iter as f32;
+            let ix = x + iter as f32;
 
             let perpos = ((ix % flen) + flen) % flen;
             let saw_dir = ((((ix / flen) % 2.0) + 2.0) % 2.0).floor();
 
-            let isbackward = (pingpong && saw_dir != backwards as u8 as f32) as u32 as f32;
-            let ix = (perpos * (1.0 - 2.0 * isbackward) + flbackward * isbackward).floor();
+            let isbackward =
+                (((pingpong && saw_dir == 1.0) != backwards) as u8 as f32) as u32 as f32;
+            let ix = (perpos * (1.0 - 2.0 * isbackward) + flbackward * isbackward);
+            let ixf = ix.floor();
 
-            let fx = (1.0 * isbackward) + x - x.floor() * (1.0 - 2.0 * isbackward);
+            let fx = ix - ixf;
 
             *res += from[ix as usize] as f64 * sinc(iter as f64 - fx as f64);
         }
@@ -376,19 +384,26 @@ impl<'a> Channel<'a> {
         let freq = self.freq as f64 / samplerate as f64;
 
         // Find the correct indices for the slice of sample audio.
-        let pos_a = self.position as usize;
-        let pos_b = (self.position
-            + seg_samples as f64 * freq * if self.backwards { -1.0 } else { 1.0 })
-            as usize;
+        let width = seg_samples as f64 * freq * if self.backwards { -1.0 } else { 1.0 };
+        let end = self.position + width;
 
-        let pos_1 = if self.backwards { pos_b } else { pos_a };
-        let pos_2 = if self.backwards { pos_a } else { pos_b };
+        let pos_1 = if self.backwards {
+            end.floor()
+        } else {
+            self.position.floor()
+        } as usize;
+
+        let pos_2 = if self.backwards {
+            self.position.ceil()
+        } else {
+            end.ceil()
+        } as usize;
 
         // Interpolate relevant sample audio;
         self.interpolate_buffers(
             &sample.audio[pos_1..pos_2],
             &mut interpolated,
-            interpolation,
+            interpolation
         );
 
         // Apply volumes to interpolated audio.
@@ -474,7 +489,12 @@ impl<'a> Channel<'a> {
         true
     }
 
-    fn interpolate_buffers(&self, from: &[i16], to: &mut [i32], interpolation: Interpolation) {
+    fn interpolate_buffers(
+        &self,
+        from: &[i16],
+        to: &mut [i32],
+        interpolation: Interpolation,
+    ) {
         let sample = &self.module.samples[self.current_sample_index as usize];
         let pingpong = matches!(sample.loop_type, LoopType::PingPong);
 
