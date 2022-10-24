@@ -91,9 +91,9 @@ fn buf_sinc(from: &[i16], to: &mut [i32], backwards: bool, quality: isize, pingp
             let saw_dir = ((((ix / flen) % 2.0) + 2.0) % 2.0).floor();
 
             let isbackward = (pingpong && saw_dir != backwards as u8 as f32) as u32 as f32;
-            let ix = perpos * (1.0 + -2.0 * isbackward) + flbackward * isbackward;
+            let ix = (perpos * (1.0 - 2.0 * isbackward) + flbackward * isbackward).floor();
 
-            let fx = x - x.floor();
+            let fx = (1.0 * isbackward) + x - x.floor() * (1.0 - 2.0 * isbackward);
 
             *res += from[ix as usize] as f32 * sinc(iter as f32 - fx);
         }
