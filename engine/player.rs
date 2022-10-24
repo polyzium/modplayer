@@ -67,7 +67,8 @@ fn buf_linear(from: &[i16], to: &mut [i32], backwards: bool) {
         let ix = x.floor() as usize;
         let alpha = x - x.floor();
 
-        *res = ((from[ix] as f32 * (1.0 - alpha) + from[(ix + 1) % from.len()] as f32 * alpha) * 32768.0) as i32;
+        *res = ((from[ix] as f32 * (1.0 - alpha) + from[(ix + 1) % from.len()] as f32 * alpha)
+            * 32768.0) as i32;
     }
 }
 
@@ -143,9 +144,9 @@ impl<'a> Channel<'a> {
         if linear {
             match value & 0xF0 {
                 // Detect fine-iness
-                0xE0 => self.freq *= 2f32.powf((value & 0x0F) as f32 / 768.0),        // Extra fine
-                0xF0 => self.freq *= 2f32.powf(2.0 * (value & 0x0F) as f32 / 768.0),  // Fine
-                _ => self.freq *= 2f32.powf(4.0 * value as f32 / 768.0),              // Regular
+                0xE0 => self.freq *= 2f32.powf((value & 0x0F) as f32 / 768.0), // Extra fine
+                0xF0 => self.freq *= 2f32.powf(2.0 * (value & 0x0F) as f32 / 768.0), // Fine
+                _ => self.freq *= 2f32.powf(4.0 * value as f32 / 768.0),       // Regular
             }
         } else {
             // Amiga slide
@@ -168,9 +169,9 @@ impl<'a> Channel<'a> {
         if linear {
             match value & 0xF0 {
                 // Detect fine-iness
-                0xE0 => self.freq *= 2f32.powf(-((value & 0x0F) as f32) / 768.0),      // Extra fine
-                0xF0 => self.freq *= 2f32.powf(-2.0 * (value & 0x0F) as f32 / 768.0),  // Fine
-                _ => self.freq *= 2f32.powf(-4.0 * value as f32 / 768.0),              // Regular
+                0xE0 => self.freq *= 2f32.powf(-((value & 0x0F) as f32) / 768.0), // Extra fine
+                0xF0 => self.freq *= 2f32.powf(-2.0 * (value & 0x0F) as f32 / 768.0), // Fine
+                _ => self.freq *= 2f32.powf(-4.0 * value as f32 / 768.0),         // Regular
             }
         } else {
             // Amiga slide
