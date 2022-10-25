@@ -1,8 +1,10 @@
 use std::{
     f64::consts::PI,
     io::{stdout, Write},
+    sync::mpsc::Sender,
 };
 
+use crate::engine::message::Message;
 use crate::engine::module::{Effect, Sample};
 
 use super::module::{LoopType, Module, Note, VolEffect};
@@ -525,7 +527,12 @@ impl<'a> Channel<'a> {
 
 pub struct Player<'a> {
     pub module: &'a Module,
+    pub playloop: bool,
+    pub playing: bool,
 
+    event_channel: Option<Sender<Message>>,
+
+    pub speed: f32,
     pub samplerate: u32,
     pub interpolation: Interpolation,
 
@@ -544,9 +551,11 @@ pub struct Player<'a> {
 }
 
 impl Player<'_> {
-    pub fn from_module(module: &Module, samplerate: u32, player_volume: f32) -> Player<'_> {
+    pub fn from_module(module: &Module, samplerate: u32, speed: f32, player_volume: f32, playloop: bool, event_channel: Option<Sender<Message>>) -> Player<'_> {
         let mut player = Player {
-            module,
+            module, playloop, event_channel, speed,
+
+            playing: true,
 
             samplerate,
             interpolation: Interpolation::Linear,
@@ -578,6 +587,30 @@ impl Player<'_> {
         player.tick_slab = player.compute_tick_slab();
 
         player
+    }
+
+    pub fn stop(&mut self) {
+        self.playing = false;
+
+        if let Some(chan) = &self.event_channel {
+            chan.send(Message::Stop).unwrap();
+        }
+    }
+
+    pub fn pause(&mut self) {
+        self.playing = false;
+
+        if let Some(chan) = &self.event_channel {
+            chan.send(Message::Pause).unwrap();
+        }
+    }
+
+    pub fn resume(&mut self) {
+        self.playing = true;
+
+        if let Some(chan) = &self.event_channel {
+            chan.send(Message::Resume).unwrap();
+        }
     }
 
     pub fn set_player_volume(&mut self, new_volume: f32) {
@@ -671,13 +704,18 @@ impl Player<'_> {
         }
     }
 
-    fn set_tempo(&mut self, tempo: u8) {
+    pub fn set_tempo(&mut self, tempo: u8) {
         self.current_tempo = tempo;
         self.tick_slab = self.compute_tick_slab();
     }
 
+    pub fn set_speed(&mut self, speed: f32) {
+        self.speed = speed;
+        self.compute_tick_slab();
+    }
+
     fn compute_tick_slab(&self) -> u32 {
-        ((self.samplerate as f64 * 2.5) / self.current_tempo as f64) as u32
+        ((self.samplerate as f64 * 2.5) / self.current_tempo as f64 / self.speed as f64) as u32
     }
 
     fn advance_row(&mut self) {
@@ -727,6 +765,11 @@ impl Player<'_> {
                 self.current_pattern = self.module.playlist[self.current_position as usize];
 
                 if self.current_pattern == 255 {
+                    if !self.playloop {
+                        self.stop();
+                        return;
+                    }
+
                     self.current_position = 0;
                     self.current_pattern = self.module.playlist[self.current_position as usize];
                 }
@@ -736,6 +779,16 @@ impl Player<'_> {
         if self.current_row as usize == self.module.patterns[self.current_pattern as usize].len() {
             self.current_row = 0;
             self.current_position += 1;
+
+            if self.current_position as usize >= self.module.playlist.len() {
+                if !self.playloop {
+                    self.stop();
+                    return;
+                }
+
+                self.current_position = 0;
+            }
+
             self.current_pattern = self.module.playlist[self.current_position as usize];
 
             if self.current_pattern == 255 {
@@ -839,6 +892,8 @@ impl AudioCallback for Player<'_> {
     type Channel = i32;
 
     fn callback(&mut self, out: &mut [i32]) {
-        self.process_to_buffer(out);
+        if self.playing {
+            self.process_to_buffer(out);
+        }
     }
 }

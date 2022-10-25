@@ -2,8 +2,12 @@ mod engine;
 
 use engine::format_it::ITModule;
 use engine::player::{Interpolation, Player};
+use std::{
+    sync::mpsc,
+};
 
 use crate::engine::module::ModuleInterface;
+use crate::engine::message::Message;
 
 use clap::Parser;
 
@@ -21,6 +25,12 @@ struct Args {
 
     #[arg(short, long, default_value_t = 40.0)]
     volume: f32,
+
+    #[arg(short, long, default_value_t = 1.0)]
+    speed: f32,
+
+    #[arg(name = "loop", short, long, default_value_t = false)]
+    playloop: bool,
 }
 
 fn main() {
@@ -33,7 +43,9 @@ fn main() {
     });
     let binding = module.module();
 
-    let mut player: Player = Player::from_module(&binding, 48000, args.volume / 100.0);
+    let (tx, rx) = mpsc::channel::<Message>();
+
+    let mut player: Player = Player::from_module(&binding, 48000, args.speed, args.volume / 100.0, args.playloop, Some(tx));
     player.interpolation = args.interpolation;
     player.current_position = args.position;
     player.current_pattern = player.module.playlist[player.current_position as usize];
@@ -56,7 +68,12 @@ fn main() {
 
     ctrlc::set_handler(move || std::process::exit(0)).expect("error listening to interrupt");
 
-    loop {}
+    loop {
+        let msg = rx.recv();
+        if msg.is_ok() && msg.unwrap() == Message::Stop {
+            break;
+        }
+    }
 }
 
 /* fn format_note(note: u8) -> String {
