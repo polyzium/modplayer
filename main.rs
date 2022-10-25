@@ -2,7 +2,9 @@ mod engine;
 
 use engine::format_it::ITModule;
 use engine::player::{Interpolation, Player};
+use std::sync::mpsc;
 
+use crate::engine::message::Message;
 use crate::engine::module::ModuleInterface;
 
 use clap::Parser;
@@ -13,11 +15,41 @@ use clap::Parser;
 struct Args {
     file: String,
 
-    #[arg(short, long, value_enum, default_value_t = Interpolation::Linear)]
+    #[arg(short, long, value_enum, default_value_t = Interpolation::Linear, help = "Type of interpolation for sample playback")]
     interpolation: Interpolation,
 
-    #[arg(short, long, default_value_t = 0)]
+    #[arg(
+        short,
+        long,
+        default_value_t = 0,
+        help = "Position of the file at which to begin"
+    )]
     position: u8,
+
+    #[arg(
+        short,
+        long,
+        default_value_t = 40.0,
+        help = "Global playback volume modifier"
+    )]
+    volume: f32,
+
+    #[arg(
+        short,
+        long,
+        default_value_t = 1.0,
+        help = "Playback tick speed modifier"
+    )]
+    speed: f32,
+
+    #[arg(
+        name = "loop",
+        short,
+        long,
+        default_value_t = false,
+        help = "Whether to loop around after the end of a module playlist"
+    )]
+    playloop: bool,
 }
 
 fn main() {
@@ -30,7 +62,16 @@ fn main() {
     });
     let binding = module.module();
 
-    let mut player: Player = Player::from_module(&binding, 48000);
+    let (tx, rx) = mpsc::channel::<Message>();
+
+    let mut player: Player = Player::from_module(
+        &binding,
+        48000,
+        args.speed,
+        args.volume / 100.0,
+        args.playloop,
+        Some(tx),
+    );
     player.interpolation = args.interpolation;
     player.current_position = args.position;
     player.current_pattern = player.module.playlist[player.current_position as usize];
@@ -53,7 +94,16 @@ fn main() {
 
     ctrlc::set_handler(move || std::process::exit(0)).expect("error listening to interrupt");
 
-    loop {}
+    loop {
+        let msg = rx.recv();
+        if msg.is_ok() {
+            let msg = msg.unwrap();
+
+            if msg == Message::Stop {
+                break;
+            }
+        }
+    }
 }
 
 /* fn format_note(note: u8) -> String {
