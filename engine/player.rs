@@ -107,7 +107,9 @@ fn buf_sinc(
                     } else {
                         x
                     }
-                } else { ((x % flen) + flen) % flen };
+                } else {
+                    ((x % flen) + flen) % flen
+                };
 
                 let ix = x.floor();
 
@@ -551,9 +553,19 @@ pub struct Player<'a> {
 }
 
 impl Player<'_> {
-    pub fn from_module(module: &Module, samplerate: u32, speed: f32, player_volume: f32, playloop: bool, event_channel: Option<Sender<Message>>) -> Player<'_> {
+    pub fn from_module(
+        module: &Module,
+        samplerate: u32,
+        speed: f32,
+        player_volume: f32,
+        playloop: bool,
+        event_channel: Option<Sender<Message>>,
+    ) -> Player<'_> {
         let mut player = Player {
-            module, playloop, event_channel, speed,
+            module,
+            playloop,
+            event_channel,
+            speed,
 
             playing: true,
 
@@ -660,6 +672,11 @@ impl Player<'_> {
 
             if self.ticks_passed >= self.current_speed {
                 self.advance_row();
+
+                if !self.playing {
+                    return;
+                }
+
                 self.play_row();
             }
 
@@ -754,15 +771,11 @@ impl Player<'_> {
         } else {
             self.current_row += 1;
             if pos_jump_enabled {
-                self.current_row = 0;
-                self.current_position = pos_jump_to;
-                self.current_pattern = self.module.playlist[self.current_position as usize];
+                self.set_position(pos_jump_to, 0);
             }
 
             if pat_break_enabled {
-                self.current_row = pat_break_to as u16;
-                self.current_position += 1;
-                self.current_pattern = self.module.playlist[self.current_position as usize];
+                self.set_position(self.current_position + 1, pat_break_to as u16);
 
                 if self.current_pattern == 255 {
                     if !self.playloop {
@@ -771,14 +784,12 @@ impl Player<'_> {
                     }
 
                     self.current_position = 0;
-                    self.current_pattern = self.module.playlist[self.current_position as usize];
                 }
             }
         }
 
         if self.current_row as usize == self.module.patterns[self.current_pattern as usize].len() {
-            self.current_row = 0;
-            self.current_position += 1;
+            self.set_position(self.current_position + 1, 0);
 
             if self.current_position as usize >= self.module.playlist.len() {
                 if !self.playloop {
@@ -786,20 +797,32 @@ impl Player<'_> {
                     return;
                 }
 
-                self.current_position = 0;
+                self.set_position(0, 0);
             }
 
             self.current_pattern = self.module.playlist[self.current_position as usize];
 
             if self.current_pattern == 255 {
                 // End of song marker
-                std::process::exit(0);
+                if !self.playloop {
+                    self.stop();
+                    return;
+                }
+
+                self.set_position(0, 0);
             }
         };
     }
 
+    pub fn set_position(&mut self, pos: u8, row: u16) {
+        self.current_position = pos;
+        self.current_pattern = self.module.playlist[self.current_position as usize];
+        self.current_row = row;
+    }
+
     fn play_row(&mut self) {
-        let row = &self.module.patterns[self.current_pattern as usize][self.current_row as usize];
+        let pat = &self.module.patterns[self.current_pattern as usize];
+        let row = &pat[self.current_row as usize];
 
         for (i, col) in row.iter().enumerate() {
             let channel = &mut self.channels[i];
