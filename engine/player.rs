@@ -66,7 +66,7 @@ fn vec_sinc(vec: &Vec<i16>, quality: i32, index: f32) -> f32 {
     tmp
 }
 
-const PERIOD: f32 = 3546816.0;
+const PERIOD: f32 = 3579545.25;
 
 fn period(freq: f32) -> f32 {
     PERIOD / freq
@@ -97,7 +97,7 @@ impl Channel<'_> {
             match value & 0xF0 {
                 0xE0 => self.freq += (self.freq / 8363.0) * 8.0 * value as f32,
                 0xF0 => self.freq += (self.freq / 8363.0) * 16.0 * value as f32,
-                _ => self.freq = freq_from_period((period(self.freq) - (value as f32)) as u16),
+                _ => self.freq = freq_from_period((period(self.freq) - (value as f32)).round() as u16),
             }
         }
     }
@@ -122,7 +122,7 @@ impl Channel<'_> {
             match value & 0xF0 {
                 0xE0 => self.freq -= (self.freq / 8363.0) * 8.0 * value as f32,
                 0xF0 => self.freq -= (self.freq / 8363.0) * 16.0 * value as f32,
-                _ => self.freq = freq_from_period((period(self.freq) + (value as f32)) as u16),
+                _ => self.freq = freq_from_period((period(self.freq) + (value as f32)).round() as u16),
             }
         }
     }
@@ -157,12 +157,12 @@ impl Channel<'_> {
         } else {
             // Amiga slides
             if self.freq < desired_freq {
-                self.freq = freq_from_period((period(self.freq) - (value as f32)) as u16);
+                self.freq = freq_from_period((period(self.freq) - (value as f32)).round() as u16);
                 if self.freq > desired_freq {
                     self.freq = desired_freq
                 }
             } else if self.freq > desired_freq {
-                self.freq = freq_from_period((period(self.freq) + (value as f32)) as u16);
+                self.freq = freq_from_period((period(self.freq) + (value as f32)).round() as u16);
                 if self.freq < desired_freq {
                     self.freq = desired_freq
                 }
@@ -400,6 +400,8 @@ impl Player<'_> {
             return;
         };
         let row = &self.module.patterns[self.current_pattern as usize][self.current_row as usize];
+
+        if self.ticks_passed <= 0 {return};
 
         for (i, col) in row.iter().enumerate() {
             let channel = &mut self.channels[i];
