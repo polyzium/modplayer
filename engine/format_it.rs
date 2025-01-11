@@ -7,6 +7,7 @@ use std::{
     io::{self, Read, SeekFrom},
     slice,
 };
+use anyhow::{anyhow, Result};
 
 #[derive(Debug)]
 pub struct ITModule {
@@ -329,15 +330,8 @@ impl Default for ITModule {
     }
 }
 
-pub struct NotAModuleError;
-impl std::fmt::Display for NotAModuleError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "the file is not a valid IT module")
-    }
-}
-
 impl ITModule {
-    pub fn load(mut reader: impl io::Read + io::Seek) -> Result<ITModule, NotAModuleError> {
+    pub fn load(mut reader: impl io::Read + io::Seek) -> Result<ITModule> {
         let mut module = ITModule::default();
 
         // TODO: migrate to byteorder/nom instead of this fucking mess
@@ -347,7 +341,7 @@ impl ITModule {
         reader.read_exact(&mut module._impm).unwrap();
         match std::str::from_utf8(&module._impm).unwrap() {
             "IMPM" => {}
-            _ => return Err(NotAModuleError),
+            _ => return Err(anyhow!("File is not a valid module")),
         };
         reader.read_exact(&mut module.song_name).unwrap();
 
@@ -561,6 +555,7 @@ impl ITModule {
                 .seek(SeekFrom::Start(sample.sample_pointer as u64))
                 .unwrap();
 
+            if sample.flags & 0b1000 == 0 {
             if sample.flags & 0b10 != 0 {
                 // Sample is 16 bit
                 let mut data: Vec<u8> = Vec::with_capacity(sample.length as usize * 2);
@@ -576,7 +571,7 @@ impl ITModule {
                 } else {
                     sample.audio = data
                         .chunks(2)
-                        .map(|x| u16::from_le_bytes(x.try_into().unwrap()) as i16)
+                        .map(|x| u16::from_le_bytes(x.try_into().unwrap()) as i16 - 32767)
                         .collect();
                 }
             } else {
@@ -589,11 +584,12 @@ impl ITModule {
                     // Signed?
                     sample.audio = data
                         .iter()
-                        .map(|x| i8::from_ne_bytes([*x]) as i16 * 128)
+                        .map(|x| i8::from_ne_bytes([*x]) as i16 * 256)
                         .collect();
                 } else {
-                    sample.audio = data.iter().map(|x| *x as i16 * 128).collect();
+                    sample.audio = data.iter().map(|x| (*x as i16 - 128) * 256).collect();
                 }
+            }
             }
             // println!("Sample {} length: {}", module.samples.len()+1, sample.audio.len());
             module.samples.push(sample)
@@ -724,7 +720,7 @@ impl ModuleInterface for ITModule {
                                     0xA => Effect::PanEnvOn,
                                     0xB => Effect::PitchEnvOff,
                                     0xC => Effect::PitchEnvOn,
-                                    _ => Effect::None,
+                                    _ => Effect::None(c.effect_value),
                                 },
                                 0x80 => Effect::SetPan(c.effect_value & 0x0F),
                                 0x90 => Effect::SoundControl(c.effect_value & 0x0F),
@@ -738,7 +734,7 @@ impl ModuleInterface for ITModule {
                                 0xE0 => Effect::PatDelay(c.effect_value & 0x0F),
                                 0xF0 => Effect::SetActiveMacro(c.effect_value & 0x0F),
 
-                                _ => Effect::None,
+                                _ => Effect::None(c.effect_value),
                             },
                             20 => match c.effect_value & 0xF0 {
                                 0x0 => Effect::DecTempo(c.effect_value & 0x0F),
@@ -752,7 +748,7 @@ impl ModuleInterface for ITModule {
                             25 => Effect::Panbrello(c.effect_value),
                             26 => Effect::MIDIMacro(c.effect_value),
 
-                            _ => Effect::None,
+                            _ => Effect::None(c.effect_value),
                         },
                     };
 

@@ -34,6 +34,7 @@ struct Channel<'a> {
     offset_memory: u8,   // Oxx
     volume_memory: u8,   // Dxy
     retrigger_ticks: u8, // Qxy
+    s3m_effect_memory: u8, // S3M only
 
     volume: f32,
     // panning: i8,
@@ -79,9 +80,21 @@ fn freq_from_period(period: u16) -> f32 {
 impl Channel<'_> {
     fn porta_up(&mut self, linear: bool, mut value: u8) {
         if value != 0 {
-            self.porta_memory = value;
+            match self.module.mode {
+                super::module::PlaybackMode::S3M =>
+                    self.s3m_effect_memory = value,
+                super::module::PlaybackMode::IT | super::module::PlaybackMode::ITSample =>
+                    self.porta_memory = value,
+                _ => todo!(),
+            }
         } else {
-            value = self.porta_memory;
+            match self.module.mode {
+                super::module::PlaybackMode::S3M =>
+                    value = self.s3m_effect_memory,
+                super::module::PlaybackMode::IT | super::module::PlaybackMode::ITSample =>
+                    value = self.porta_memory,
+                _ => todo!(),
+            }
         }
 
         if linear {
@@ -104,9 +117,21 @@ impl Channel<'_> {
 
     fn porta_down(&mut self, linear: bool, mut value: u8) {
         if value != 0 {
-            self.porta_memory = value;
+            match self.module.mode {
+                super::module::PlaybackMode::S3M =>
+                    self.s3m_effect_memory = value,
+                super::module::PlaybackMode::IT | super::module::PlaybackMode::ITSample =>
+                    self.porta_memory = value,
+                _ => todo!(),
+            }
         } else {
-            value = self.porta_memory;
+            match self.module.mode {
+                super::module::PlaybackMode::S3M =>
+                    value = self.s3m_effect_memory,
+                super::module::PlaybackMode::IT | super::module::PlaybackMode::ITSample =>
+                    value = self.porta_memory,
+                _ => todo!(),
+            }
         }
 
         if linear {
@@ -172,9 +197,21 @@ impl Channel<'_> {
 
     fn vol_slide(&mut self, mut value: u8) {
         if value != 0 {
-            self.volume_memory = value;
+            match self.module.mode {
+                super::module::PlaybackMode::S3M =>
+                    self.s3m_effect_memory = value,
+                super::module::PlaybackMode::IT | super::module::PlaybackMode::ITSample =>
+                    self.volume_memory = value,
+                _ => todo!(),
+            }
         } else {
-            value = self.volume_memory;
+            match self.module.mode {
+                super::module::PlaybackMode::S3M =>
+                    value = self.s3m_effect_memory,
+                super::module::PlaybackMode::IT | super::module::PlaybackMode::ITSample =>
+                    value = self.volume_memory,
+                _ => todo!(),
+            }
         }
 
         let upper = (value & 0xF0) >> 4;
@@ -363,6 +400,7 @@ impl Player<'_> {
                 offset_memory: 0,
                 volume_memory: 0,
                 retrigger_ticks: 0,
+                s3m_effect_memory: 0,
 
                 volume: 64.0,
                 // panning: 0
@@ -414,8 +452,20 @@ impl Player<'_> {
                 Effect::TonePorta(value) => {
                     channel.tone_portamento(col.note, self.module.linear_freq_slides, value)
                 }
+                Effect::VolSlideTonePorta(value) => {
+                    channel.vol_slide(value);
+                    channel.tone_portamento(col.note, self.module.linear_freq_slides, 0);
+                }
+                Effect::VolSlideVibrato(value) => {
+                    channel.vol_slide(value);
+                },
                 Effect::VolSlide(value) => channel.vol_slide(value),
                 Effect::Retrig(value) => channel.retrigger(value),
+                Effect::None(value) => {
+                    if value != 0 && matches!(self.module.mode, super::module::PlaybackMode::S3M) {
+                        channel.s3m_effect_memory = value;
+                    }
+                }
                 _ => {}
             }
         }
@@ -437,15 +487,17 @@ impl Player<'_> {
 
         for col in row.iter() {
             match col.effect {
-                Effect::SetSpeed(speed) => self.current_speed = speed,
-                Effect::SetTempo(tempo) => self.current_tempo = tempo,
                 Effect::PosJump(position) => {
                     pos_jump_enabled = true;
                     pos_jump_to = position
                 }
                 Effect::PatBreak(row) => {
                     pat_break_enabled = true;
-                    pat_break_to = row
+                    pat_break_to = match self.module.mode {
+                        super::module::PlaybackMode::MOD | super::module::PlaybackMode::S3M =>
+                            (row & 0xF) + ((row >> 4) * 10),
+                        _ => row,
+                    }
                 }
                 _ => {}
             }
@@ -474,10 +526,27 @@ impl Player<'_> {
             }
         }
 
+        loop {
+            if self.current_pattern == 254 {
+                self.current_position += 1;
+                self.current_pattern = self.module.playlist[self.current_position as usize];
+            } else {
+                break;
+            }
+        }
         if self.current_row as usize == self.module.patterns[self.current_pattern as usize].len() {
             self.current_row = 0;
             self.current_position += 1;
             self.current_pattern = self.module.playlist[self.current_position as usize];
+
+            loop {
+                if self.current_pattern == 254 {
+                    self.current_position += 1;
+                    self.current_pattern = self.module.playlist[self.current_position as usize];
+                } else {
+                    break;
+                }
+            }
 
             if self.current_pattern == 255 {
                 // End of song marker
@@ -516,6 +585,12 @@ impl Player<'_> {
                 VolEffect::VibratoDepth(_) => {}
                 VolEffect::SetPan(_) => {}
                 VolEffect::Volume(volume) => channel.volume = volume as f32,
+            }
+
+            match col.effect {
+                Effect::SetSpeed(speed) => self.current_speed = speed,
+                Effect::SetTempo(tempo) => self.current_tempo = tempo,
+                _ => {}
             }
 
             if col.instrument != 0 {

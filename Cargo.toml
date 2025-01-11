@@ -10,6 +10,7 @@ sdl2 = "0.35.2"
 byteorder = "1.4.3"
 ctrlc = "3.2.3"
 clap = { version = "4.0.15", features = ["derive"] }
+anyhow = "1.0.95"
 
 [[bin]]
 name = "modplayer"

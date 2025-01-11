@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{fmt::Display};
 
 #[derive(Default, Debug, Clone, Copy)]
 pub enum Note {
@@ -10,11 +10,10 @@ pub enum Note {
     Off,
 }
 
-#[derive(Default, Debug)]
+#[derive(Debug)]
 pub enum Effect {
     // Based off IT's set
-    #[default]
-    None,
+    None(u8),
 
     SetSpeed(u8),          // Axx
     PosJump(u8),           // Bxx
@@ -76,6 +75,12 @@ pub enum Effect {
     Panbrello(u8),      // Yxy
     MIDIMacro(u8),      // Zxx
                         // SmoothMIDIMacro(u8) // \xx, ModPlug hack
+}
+
+impl Default for Effect {
+    fn default() -> Self {
+        Self::None(0)
+    }
 }
 
 #[derive(Default, Debug)]
