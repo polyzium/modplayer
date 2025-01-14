@@ -111,10 +111,15 @@ pub enum LoopType {
 #[derive(Debug)]
 pub enum PlaybackMode {
     MOD,
-    S3M,
+    S3M(S3MOptions),
     XM,
     IT,
     ITSample,
+}
+
+#[derive(Debug)]
+pub struct S3MOptions {
+    pub gus: bool
 }
 
 #[derive(Debug, Clone)]
@@ -149,8 +154,12 @@ pub struct Module {
     pub mode: PlaybackMode,
 
     pub linear_freq_slides: bool,
+    pub fast_volume_slides: bool,
     pub initial_tempo: u8,
     pub initial_speed: u8,
+    pub initial_global_volume: u8,
+
+    pub mixing_volume: u8,
 
     pub samples: Vec<Sample>,
     //TODO: instruments

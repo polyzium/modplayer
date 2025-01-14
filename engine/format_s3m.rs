@@ -1,6 +1,5 @@
 use super::module::{
-    Column, Effect, LoopType, Module, ModuleInterface, Note, Pattern, PlaybackMode, Row, Sample,
-    VolEffect,
+    Column, Effect, LoopType, Module, ModuleInterface, Note, Pattern, PlaybackMode, Row, S3MOptions, Sample, VolEffect
 };
 use byteorder::{LittleEndian, NativeEndian, ReadBytesExt};
 use std::{
@@ -56,6 +55,7 @@ pub struct S3MSample {
     flags: u8,
     c4speed: u32,
     _unused2: u32,
+    int_gp: u16,
     sample_name: [u8;28],
     _scrs: [u8;4],
 
@@ -185,7 +185,9 @@ impl S3MModule {
             }
             sample.flags = reader.read_u8().unwrap();
             sample.c4speed = reader.read_u32::<LittleEndian>().unwrap();
-            reader.seek(SeekFrom::Current(12)).unwrap();
+            reader.seek(SeekFrom::Current(4)).unwrap();
+            sample.int_gp = reader.read_u16::<LittleEndian>().unwrap();
+            reader.seek(SeekFrom::Current(6)).unwrap();
             reader.read(&mut sample.sample_name).unwrap();
 
             let sampledata_offset: u32 =
@@ -273,6 +275,21 @@ impl S3MModule {
 
         Ok(module)
     }
+
+    fn is_gus(&self) -> bool {
+        let mut total = 0u16;
+        for sample in &self.samples {
+            if sample.sample_type < 2 {
+                total |= sample.int_gp
+            };
+        };
+
+        match total {
+            1 => false,
+            0 => self.tracker_metadata > 0x1300,
+            _ => true
+        }
+    }
 }
 
 impl ModuleInterface for S3MModule {
@@ -300,7 +317,14 @@ impl ModuleInterface for S3MModule {
             let mut pattern = Pattern::with_capacity(64);
             for r in p {
                 let mut row = Row::with_capacity(r.len());
-                for c in r {
+                for (i, c) in r.iter().enumerate() {
+                    if self.channel_settings[i] & 0x7F >= 16 // Ignore AdLib channels
+                        // || self.channel_settings[i] == 255 // Also ignore unassigned channels
+                        || self.channel_settings[i] & 0x80 != 0 // Also ignore muted channels
+                    {
+                        continue;
+                    }
+
                     let oc = Column {
                         note: match c.note {
                             255 => Note::None,
@@ -387,10 +411,13 @@ impl ModuleInterface for S3MModule {
 
     fn module(&self) -> Module {
         Module {
-            mode: PlaybackMode::S3M,
+            mode: PlaybackMode::S3M(S3MOptions { gus: self.is_gus() }),
             linear_freq_slides: false,
+            fast_volume_slides: self.tracker_metadata == 0x1300 || self.flags & 0x40 != 0,
             initial_tempo: self.initial_tempo,
             initial_speed: self.initial_speed,
+            initial_global_volume: 64,
+            mixing_volume: if self.is_gus() { 48 } else { self.mixing_volume & 0x7F },
             samples: self.samples(),
             patterns: self.patterns(),
             playlist: self.orders.clone(),

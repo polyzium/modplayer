@@ -771,8 +771,11 @@ impl ModuleInterface for ITModule {
                 PlaybackMode::ITSample
             },
             linear_freq_slides: self.flags & 0b1000 != 0, // Bit 3: On = Linear slides, Off = Amiga slides.
+            fast_volume_slides: false,
             initial_tempo: self.initial_tempo,
             initial_speed: self.initial_speed,
+            initial_global_volume: self.global_volume,
+            mixing_volume: self.mixing_volume,
             samples: self.samples(),
             patterns: self.patterns(),
             playlist: self.orders.clone(),
