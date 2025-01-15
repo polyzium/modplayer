@@ -198,7 +198,7 @@ impl ITPattern {
 
         let mut column = ITColumn::default();
 
-        while self.rows.len() != self.rows_amount.into() {
+        while self.rows.len() != self.rows_amount as usize {
             pattern_bytes
                 .read_exact(slice::from_mut(&mut channel_variable))
                 .unwrap();

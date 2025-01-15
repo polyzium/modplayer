@@ -200,7 +200,7 @@ impl S3MModule {
                 // Sample is 16 bit
                 let mut data: Vec<u8> = Vec::with_capacity(sample.length as usize * 2);
                 data.resize((sample.length * 2).try_into().unwrap(), 0);
-                reader.read_exact(&mut data).unwrap();
+                reader.read(&mut data).unwrap();
 
                 if module.ffi == 1 {
                     // Signed?
@@ -211,14 +211,14 @@ impl S3MModule {
                 } else {
                     sample.audio = data
                         .chunks(2)
-                        .map(|x| u16::from_le_bytes(x.try_into().unwrap()) as i16 - 32767)
+                        .map(|x| (u16::from_le_bytes(x.try_into().unwrap()) ^ 0x8000) as i16)
                         .collect();
                 }
             } else {
                 // Sample is 8 bit
                 let mut data: Vec<u8> = Vec::with_capacity(sample.length as usize);
                 data.resize((sample.length).try_into().unwrap(), 0);
-                reader.read_exact(&mut data).unwrap();
+                reader.read(&mut data).unwrap();
 
                 if module.ffi == 1 {
                     // Signed?
