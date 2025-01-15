@@ -340,13 +340,55 @@ impl ModuleInterface for STMModule {
                             1 => Effect::SetSpeed(c.effect_value >> 4),
                             2 => Effect::PosJump(c.effect_value),
                             3 => Effect::PatBreak(c.effect_value),
-                            4 => Effect::VolSlide(c.effect_value),
-                            5 => Effect::PortaDown(c.effect_value),
-                            6 => Effect::PortaUp(c.effect_value),
-                            7 => Effect::TonePorta(c.effect_value),
-                            8 => Effect::Vibrato(c.effect_value),
-                            9 => Effect::Tremor(c.effect_value),
-                            10 => Effect::Arpeggio(c.effect_value),
+                            4 => {
+                                if c.effect_value != 0 {
+                                    Effect::VolSlide(c.effect_value)
+                                } else {
+                                    Effect::None(c.effect_value)
+                                }
+                            }
+                            5 => {
+                                if c.effect_value != 0 {
+                                    Effect::PortaDown(c.effect_value)
+                                } else {
+                                    Effect::None(c.effect_value)
+                                }
+                            }
+                            6 => {
+                                if c.effect_value != 0 {
+                                    Effect::PortaUp(c.effect_value)
+                                } else {
+                                    Effect::None(c.effect_value)
+                                }
+                            }
+                            7 => {
+                                if c.effect_value != 0 {
+                                    Effect::TonePorta(c.effect_value)
+                                } else {
+                                    Effect::None(c.effect_value)
+                                }
+                            }
+                            8 => {
+                                if c.effect_value != 0 {
+                                    Effect::Vibrato(c.effect_value)
+                                } else {
+                                    Effect::None(c.effect_value)
+                                }
+                            }
+                            9 => {
+                                if c.effect_value != 0 {
+                                    Effect::Tremor(c.effect_value)
+                                } else {
+                                    Effect::None(c.effect_value)
+                                }
+                            }
+                            10 => {
+                                if c.effect_value != 0 {
+                                    Effect::Arpeggio(c.effect_value)
+                                } else {
+                                    Effect::None(c.effect_value)
+                                }
+                            }
 
                             _ => Effect::None(c.effect_value),
                         },
