@@ -256,10 +256,10 @@ impl STMModule {
                             pattern[row][channel].effect = 0;
                             pattern[row][channel].effect_value = 0;
                         }
-                        0xFC => {
+                        0xFD => {
                             pattern[row][channel].note = 254;
                         }
-                        0xFD => {}
+                        0xFC => {}
                         _ => {
                             let packed_byte2 = reader.read_u8().unwrap();
                             let packed_byte3 = reader.read_u8().unwrap();
