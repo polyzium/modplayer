@@ -205,9 +205,6 @@ impl STMModule {
             sample.c4speed = reader.read_u16::<LittleEndian>().unwrap();
             reader.seek(SeekFrom::Current(6)).unwrap();
 
-            // yes, some STMs have loop ends that go beyond the sample length...
-            let _ = sample.length.max(sample.loop_end);
-
             if sample.volume != 0 {
                 let sampledata_offset = (sample.memseg as u64) << 4;
                 reader
@@ -217,7 +214,8 @@ impl STMModule {
                 // Sample is 8 bit
                 let mut data: Vec<u8> = Vec::with_capacity(sample.length as usize);
                 data.resize((sample.length).try_into().unwrap(), 0);
-                reader.read_exact(&mut data).unwrap();
+                // normally a bad idea but some STMs have samples whose lengths go beyond the end of the file!
+                reader.read_exact(&mut data).ok();
 
                 sample.audio = data
                     .iter()
