@@ -9,64 +9,6 @@ use std::{
     slice,
 };
 
-// calculated using this formula from OpenMPT
-// (i range 1-15, j range 0-15);
-// unsigned int st2MixingRate = 23863;
-// const unsigned char tempo_table[18] = {140, 50, 25, 15, 10, 7, 6, 4, 3, 3, 2, 2, 2, 2, 1, 1, 1, 1};
-// long double samplesPerTick = (double) st2MixingRate / ((long double) 50 - ((tempo_table[high_nibble] * low_nibble) / 16));
-// st2MixingRate *= 5; // normally multiplied by the precision beyond the decimal point, however there's no decimal place here. :P
-// st2MixingRate += samplesPerTick;
-// st2MixingRate = (st2MixingRate >= 0)
-//                 ? (int32_t) (st2MixingRate / (samplesPerTick * 2))
-//                 : (int32_t)((st2MixingRate - ((samplesPerTick * 2) - 1)) / (samplesPerTick * 2));
-const ST2_TEMPO_TABLE: [[u8; 16]; 15] = [
-    [
-        125, 117, 110, 102, 95, 87, 80, 72, 62, 55, 47, 40, 32, 25, 17, 10,
-    ],
-    [
-        125, 122, 117, 115, 110, 107, 102, 100, 95, 90, 87, 82, 80, 75, 72, 67,
-    ],
-    [
-        125, 125, 122, 120, 117, 115, 112, 110, 107, 105, 102, 100, 97, 95, 92, 90,
-    ],
-    [
-        125, 125, 122, 122, 120, 117, 117, 115, 112, 112, 110, 110, 107, 105, 105, 102,
-    ],
-    [
-        125, 125, 125, 122, 122, 120, 120, 117, 117, 117, 115, 115, 112, 112, 110, 110,
-    ],
-    [
-        125, 125, 125, 122, 122, 122, 120, 120, 117, 117, 117, 115, 115, 115, 112, 112,
-    ],
-    [
-        125, 125, 125, 125, 122, 122, 122, 122, 120, 120, 120, 120, 117, 117, 117, 117,
-    ],
-    [
-        125, 125, 125, 125, 125, 125, 122, 122, 122, 122, 122, 120, 120, 120, 120, 120,
-    ],
-    [
-        125, 125, 125, 125, 125, 125, 122, 122, 122, 122, 122, 120, 120, 120, 120, 120,
-    ],
-    [
-        125, 125, 125, 125, 125, 125, 125, 125, 122, 122, 122, 122, 122, 122, 122, 122,
-    ],
-    [
-        125, 125, 125, 125, 125, 125, 125, 125, 122, 122, 122, 122, 122, 122, 122, 122,
-    ],
-    [
-        125, 125, 125, 125, 125, 125, 125, 125, 122, 122, 122, 122, 122, 122, 122, 122,
-    ],
-    [
-        125, 125, 125, 125, 125, 125, 125, 125, 122, 122, 122, 122, 122, 122, 122, 122,
-    ],
-    [
-        125, 125, 125, 125, 125, 125, 125, 125, 125, 125, 125, 125, 125, 125, 125, 125,
-    ],
-    [
-        125, 125, 125, 125, 125, 125, 125, 125, 125, 125, 125, 125, 125, 125, 125, 125,
-    ],
-];
-
 fn translate_early_tempo(tempo: u8) -> u8 {
     ((tempo / 10) << 4) + (tempo % 10)
 }
@@ -335,7 +277,7 @@ impl ModuleInterface for STMModule {
                         },
                         effect: match c.effect {
                             // TODO: ST2 actually sets speed *and tempo* in the 'A' command!
-                            1 => Effect::SetSpeed(c.effect_value >> 4),
+                            1 => Effect::STMTempo(c.effect_value),
                             2 => Effect::PosJump(c.effect_value),
                             3 => Effect::PatBreak(c.effect_value),
                             4 => {

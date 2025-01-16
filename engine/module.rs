@@ -1,4 +1,4 @@
-use std::{fmt::Display};
+use std::fmt::Display;
 
 #[derive(Default, Debug, Clone, Copy)]
 pub enum Note {
@@ -74,7 +74,8 @@ pub enum Effect {
     FineSetPan(u8),     // Xxx
     Panbrello(u8),      // Yxy
     MIDIMacro(u8),      // Zxx
-                        // SmoothMIDIMacro(u8) // \xx, ModPlug hack
+    // SmoothMIDIMacro(u8) // \xx, ModPlug hack
+    STMTempo(u8),
 }
 
 impl Default for Effect {
@@ -119,7 +120,7 @@ pub enum PlaybackMode {
 
 #[derive(Debug)]
 pub struct S3MOptions {
-    pub gus: bool
+    pub gus: bool,
 }
 
 #[derive(Debug, Clone)]
