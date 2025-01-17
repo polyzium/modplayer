@@ -30,9 +30,9 @@ fn main() {
         eprintln!("{}", e);
         std::process::exit(1)
     });
-    let binding = module.module();
+    let module = module.module();
 
-    let mut player: Player = Player::from_module(&binding, 48000);
+    let mut player: Player = Player::from_module(&module, 48000);
     player.interpolation = args.interpolation;
     player.current_position = args.position;
     player.current_pattern = player.module.playlist[player.current_position as usize];
@@ -62,7 +62,7 @@ fn main() {
         .open_playback(None, &spec, |_| player)
         .unwrap();
 
-    println!("Module name: {}", binding.name);
+    println!("Module name: {}", module.name);
     device.resume();
 
     ctrlc::set_handler(move || std::process::exit(0)).expect("error listening to interrupt");

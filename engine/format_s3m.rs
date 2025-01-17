@@ -417,6 +417,7 @@ impl ModuleInterface for S3MModule {
             initial_tempo: self.initial_tempo,
             initial_speed: self.initial_speed,
             initial_global_volume: 64,
+            initial_channel_volumes: [64; 64],
             mixing_volume: if self.is_gus() { 48 } else { self.mixing_volume & 0x7F },
             samples: self.samples(),
             patterns: self.patterns(),

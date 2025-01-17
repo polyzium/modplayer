@@ -158,6 +158,7 @@ pub struct Module {
     pub initial_tempo: u8,
     pub initial_speed: u8,
     pub initial_global_volume: u8,
+    pub initial_channel_volumes: [u8; 64],
 
     pub mixing_volume: u8,
 

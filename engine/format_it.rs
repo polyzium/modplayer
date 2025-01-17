@@ -775,6 +775,7 @@ impl ModuleInterface for ITModule {
             initial_tempo: self.initial_tempo,
             initial_speed: self.initial_speed,
             initial_global_volume: self.global_volume,
+            initial_channel_volumes: self.channel_volume,
             mixing_volume: self.mixing_volume,
             samples: self.samples(),
             patterns: self.patterns(),

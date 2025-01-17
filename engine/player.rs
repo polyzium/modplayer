@@ -7,7 +7,7 @@ use std::{
 use crate::engine::{lut, module::{Effect, PlaybackMode}};
 
 use super::module::{Column, LoopType, Module, Note, Row, VolEffect};
-use fixed::{traits::ToFixed, types::{I32F32, U0F32, U32F32}};
+use fixed::{traits::{Fixed, ToFixed}, types::{I32F32, U0F32, U32F32}};
 use sdl2::audio::AudioCallback;
 
 #[derive(Default, Debug, Clone, Copy, clap::ValueEnum)]
@@ -36,18 +36,42 @@ struct Channel<'a> {
     porta_memory: u8,     // Exx, Fxx, Gxx
     last_note: u8,        // Gxx
     offset_memory: u8,    // Oxx
-    volume_memory: u8,    // Dxy
-    global_volume_memory: u8, // Wxy
+    velocity_slide_memory: u8,    // Dxy
+    global_volume_slide_memory: u8, // Wxy
+    channel_volume_slide_memory: u8, // Nxy
     retrigger_memory: u8, // Qxy
     retrigger_ticks: u8,  // Qxy
     arpeggio_memory: u8,  // Jxy
     arpeggio_selector: u8,
     arpeggio_state: bool,
+    note_cut_tick: u8, // SCx
+    note_delay_tick: u8, // SDx
     s3m_effect_memory: u8, // S3M only
 
+    velocity: u8,
     volume: u8,
     // panning: i8,
 }
+
+// fn vec_linear(vec: &Vec<i16>, index: U32F32) -> i16 {
+//     (vec[index.floor() as usize] as U32F32
+//         + (index - index.floor())
+//             * ((vec[index.ceil() as usize] as f32 - vec[index.floor() as usize] as f32)
+//                 * (index - index.floor()))) as i16
+// }
+
+// fn vec_sinc(vec: &Vec<i16>, quality: i32, index: f32) -> f32 {
+//     let ix = index.floor();
+//     let fx = index - ix;
+//     let mut tmp = 0f32;
+
+//     for i in 1 - quality..quality + 1 {
+//         tmp += vec[((ix + i as f32 + vec.len() as f32) % vec.len() as f32) as usize] as f32
+//             * sinc(i as f32 - fx)
+//     }
+
+//     tmp
+// }
 
 const PERIOD: u32 = 14317056;
 
@@ -149,6 +173,7 @@ impl Channel<'_> {
                 }
                 0xF0 => { // Fine
                     if ticks_passed == 0 {
+                        // dbg!(lut::LINEAR_DOWN[(value & 0xF) as usize]);
                         self.freq *= U32F32::from(lut::LINEAR_DOWN[(value & 0xF) as usize]);
                     }
                 }
@@ -229,13 +254,13 @@ impl Channel<'_> {
         }
     }
 
-    fn vol_slide(&mut self, mut value: u8, ticks_passed: u8) {
+    fn velocity_slide(&mut self, mut value: u8, ticks_passed: u8) {
         if value != 0 {
             match self.module.mode {
                 super::module::PlaybackMode::S3M(_) =>
                     self.s3m_effect_memory = value,
                 super::module::PlaybackMode::IT | super::module::PlaybackMode::ITSample =>
-                    self.volume_memory = value,
+                    self.velocity_slide_memory = value,
                 _ => todo!(),
             }
         } else {
@@ -243,9 +268,44 @@ impl Channel<'_> {
                 super::module::PlaybackMode::S3M(_) =>
                     value = self.s3m_effect_memory,
                 super::module::PlaybackMode::IT | super::module::PlaybackMode::ITSample =>
-                    value = self.volume_memory,
+                    value = self.velocity_slide_memory,
                 _ => todo!(),
             }
+        }
+
+        let upper = (value & 0xF0) >> 4;
+        let lower = value & 0x0F;
+
+        if lower == 0xF && upper > 0 {
+            // fine up
+            if ticks_passed == 0 {
+                self.velocity += upper
+            }
+        } else if upper == 0xF && lower > 0 {
+            // fine down
+            if ticks_passed == 0 {
+                self.velocity = self.velocity.saturating_sub(lower)
+            }
+        } else if lower == 0 {
+            if ticks_passed > 0 || self.module.fast_volume_slides {
+                self.velocity += upper
+            }
+        } else {
+            if ticks_passed > 0 || self.module.fast_volume_slides {
+                self.velocity = self.velocity.saturating_sub(lower)
+            }
+        }
+
+        if self.velocity > 64 {
+            self.velocity = 64
+        };
+    }
+
+    fn channel_vol_slide(&mut self, mut value: u8, ticks_passed: u8) {
+        if value != 0 {
+            self.channel_volume_slide_memory = value;
+        } else {
+            value = self.channel_volume_slide_memory;
         }
 
         let upper = (value & 0xF0) >> 4;
@@ -299,21 +359,21 @@ impl Channel<'_> {
             // Volume change
             // TODO last used value for XM
             //0 => {}
-            1 => self.volume -= 1,
-            2 => self.volume -= 2,
-            3 => self.volume -= 4,
-            4 => self.volume -= 8,
-            5 => self.volume -= 16,
-            6 => self.volume = (self.volume * 3) / 2,
-            7 => self.volume /= 2,
+            1 => self.velocity -= 1,
+            2 => self.velocity -= 2,
+            3 => self.velocity -= 4,
+            4 => self.velocity -= 8,
+            5 => self.velocity -= 16,
+            6 => self.velocity = (self.velocity * 3) / 2,
+            7 => self.velocity /= 2,
 
-            9 => self.volume += 1,
-            0xA => self.volume += 2,
-            0xB => self.volume += 4,
-            0xC => self.volume += 8,
-            0xD => self.volume += 16,
-            0xE => self.volume = (self.volume * 2) / 3,
-            0xF => self.volume *= 2,
+            9 => self.velocity += 1,
+            0xA => self.velocity += 2,
+            0xB => self.velocity += 4,
+            0xC => self.velocity += 8,
+            0xD => self.velocity += 16,
+            0xE => self.velocity = (self.velocity * 2) / 3,
+            0xF => self.velocity *= 2,
 
             _ => {}
         }
@@ -325,8 +385,8 @@ impl Channel<'_> {
 
         self.retrigger_ticks += 1;
 
-        if self.volume > 64 {
-            self.volume = 64
+        if self.velocity > 64 {
+            self.velocity = 64
         };
     }
 
@@ -397,10 +457,19 @@ impl Channel<'_> {
         };
 
         match interpolation {
+            // Interpolation::Sinc64 => {
+            //     (
+            //         ((vec_sinc(&sample.audio, 64, self.position)).to_num::<i32>() * 65536).to_fixed::<I32F32>()
+            //         * (I32F32::from(self.volume) / I32F32::const_from_int(64))
+            //         * (I32F32::from(sample.global_volume) / I32F32::const_from_int(64))
+            //     )
+            //         .to_num::<i32>()
+            // }
             _ => {
                 (I32F32::from(sample.audio[self.position.to_num::<usize>()])
-                    * (I32F32::from(self.volume) / I32F32::const_from_int(64))
+                    * (I32F32::from(self.velocity) / I32F32::const_from_int(64))
                     * (I32F32::from(sample.global_volume) / I32F32::const_from_int(64))
+                    * (I32F32::from(self.volume) / I32F32::const_from_int(64))
                 )
                     .to_num::<i16>()
             }
@@ -447,7 +516,7 @@ impl Player<'_> {
             tick_counter: 0,
             ticks_passed: 0,
 
-            channels: array::from_fn(|_| Channel {
+            channels: array::from_fn(|i| Channel {
                 module: module,
 
                 current_sample_index: 0,
@@ -461,16 +530,20 @@ impl Player<'_> {
                 porta_memory: 0,
                 last_note: 0,
                 offset_memory: 0,
-                volume_memory: 0,
-                global_volume_memory: 0,
+                velocity_slide_memory: 0,
+                global_volume_slide_memory: 0,
+                channel_volume_slide_memory: 0,
                 retrigger_memory: 0,
                 retrigger_ticks: 0,
                 arpeggio_memory: 0,
                 arpeggio_selector: 0,
                 arpeggio_state: false,
+                note_cut_tick: 0,
+                note_delay_tick: 0,
                 s3m_effect_memory: 0,
 
-                volume: 64,
+                velocity: 64,
+                volume: module.initial_channel_volumes[i],
                 // panning: 0
             }),
         }
@@ -548,6 +621,48 @@ impl Player<'_> {
         for (i, col) in row.iter().enumerate() {
             let channel = &mut self.channels[i];
 
+            if channel.note_delay_tick == self.ticks_passed {
+                match col.note {
+                    Note::None => {}
+                    Note::On(note) => {
+                        if !matches!(col.effect, Effect::TonePorta(_))
+                            && !matches!(col.vol, VolEffect::TonePorta(_))
+                        {
+                            channel.playing = true;
+                            channel.position = match col.effect {
+                                Effect::SampleOffset(position) => {
+                                    if position != 0 {
+                                        channel.offset_memory = position
+                                    };
+                                    U32F32::from(channel.offset_memory as u32 * 256)
+                                }
+                                _ => U32F32::const_from_int(0),
+                            };
+                            if channel.current_sample_index as usize >= self.module.samples.len() {
+                                channel.playing = false;
+                            } else {
+                                channel.current_note = note;
+                                channel.base_freq = lut::PITCH_TABLE[note as usize]
+                                    * U32F32::from(self.module.samples[channel.current_sample_index as usize]
+                                        .base_frequency);
+                                channel.freq = channel.base_freq;
+                            }
+                        }
+                    }
+                    Note::Fade => {}
+                    Note::Cut => channel.playing = false,
+                    Note::Off => channel.playing = false,
+                }
+
+                if let VolEffect::Volume(volume) = col.vol {
+                    channel.velocity = volume;
+                }
+            }
+
+            if channel.note_cut_tick == self.ticks_passed {
+                channel.playing = false;
+            }
+
             match col.effect {
                 Effect::PortaUp(value) => {
                     channel.porta_up(self.module.linear_freq_slides, self.ticks_passed, value);
@@ -567,9 +682,9 @@ impl Player<'_> {
                     };
                 }
                 Effect::VolSlideVibrato(value) => {
-                    channel.vol_slide(value, self.ticks_passed);
+                    channel.velocity_slide(value, self.ticks_passed);
                 },
-                Effect::VolSlide(value) => channel.vol_slide(value, self.ticks_passed),
+                Effect::VolSlide(value) => channel.velocity_slide(value, self.ticks_passed),
                 Effect::Retrig(value) => channel.retrigger(value),
                 Effect::Arpeggio(value) => channel.arpeggio(value),
                 Effect::Vibrato(value) => {
@@ -579,13 +694,15 @@ impl Player<'_> {
                 },
                 Effect::GlobalVolSlide(mut value) => {
                     if value != 0 {
-                        channel.global_volume_memory = value
+                        channel.global_volume_slide_memory = value
                     } else {
-                        value = channel.global_volume_memory
+                        value = channel.global_volume_slide_memory
                     }
 
                     self.global_vol_slide(value);
                 },
+                Effect::SetChanVol(value) => if value <= 64 { channel.volume = value; },
+                Effect::ChanVolSlide(value) => channel.channel_vol_slide(value, self.ticks_passed),
                 Effect::None(value) => {
                     if value != 0 && matches!(self.module.mode, super::module::PlaybackMode::S3M(_)) {
                         channel.s3m_effect_memory = value;
@@ -705,15 +822,15 @@ impl Player<'_> {
 
     fn play_row(&mut self) {
         let row = &self.module.patterns[self.current_pattern as usize][self.current_row as usize];
-        // let mut row_string = String::new();
-        // row_string.push_str(&format!("{:0>2} | ", self.current_row));
-        // for (i, col) in row.iter().enumerate() {
-        //     row_string.push_str(&format!("{} \x1b[0m| ", &format_col(col)));
-        //     // if i >= 16 {
-        //     //     break;
-        //     // }
-        // }
-        // println!("{}", row_string);
+        let mut row_string = String::new();
+        row_string.push_str(&format!("{:0>2} | ", self.current_row));
+        for (i, col) in row.iter().enumerate() {
+            row_string.push_str(&format!("{} \x1b[0m| ", &format_col(col)));
+            // if i >= 16 {
+            //     break;
+            // }
+        }
+        println!("{}", row_string);
 
         print!(
             "Position {}, Pattern {}, Row {}\x1b[K\r",
@@ -741,7 +858,7 @@ impl Player<'_> {
                 VolEffect::TonePorta(_) => {}
                 VolEffect::VibratoDepth(_) => {}
                 VolEffect::SetPan(_) => {}
-                VolEffect::Volume(volume) => channel.volume = volume,
+                _ => {}
             }
 
             match col.effect {
@@ -765,41 +882,21 @@ impl Player<'_> {
                 channel.current_sample_index = col.instrument - 1;
 
                 if matches!(col.vol, VolEffect::None) && (channel.current_sample_index as usize) < self.module.samples.len() {
-                    channel.volume = self.module.samples[channel.current_sample_index as usize]
+                    channel.velocity = self.module.samples[channel.current_sample_index as usize]
                         .default_volume
                 }
             }
 
-            match col.note {
-                Note::None => {}
-                Note::On(note) => {
-                    if !matches!(col.effect, Effect::TonePorta(_))
-                        && !matches!(col.vol, VolEffect::TonePorta(_))
-                    {
-                        channel.playing = true;
-                        channel.position = match col.effect {
-                            Effect::SampleOffset(position) => {
-                                if position != 0 {
-                                    channel.offset_memory = position
-                                };
-                                U32F32::from(channel.offset_memory as u32 * 256)
-                            }
-                            _ => U32F32::const_from_int(0),
-                        };
-                        if channel.current_sample_index as usize >= self.module.samples.len() {
-                            channel.playing = false;
-                        } else {
-                            channel.current_note = note;
-                            channel.base_freq = lut::PITCH_TABLE[note as usize]
-                                * U32F32::from(self.module.samples[channel.current_sample_index as usize]
-                                    .base_frequency);
-                            channel.freq = channel.base_freq;
-                        }
-                    }
-                }
-                Note::Fade => {}
-                Note::Cut => channel.playing = false,
-                Note::Off => channel.playing = false,
+            if let Effect::NoteDelay(value) = col.effect {
+                channel.note_delay_tick = value;
+            } else {
+                channel.note_delay_tick = 0;
+            }
+
+            if let Effect::NoteCut(value) = col.effect {
+                channel.note_cut_tick = value;
+            } else {
+                channel.note_cut_tick = self.current_speed;
             }
         }
     }
@@ -870,15 +967,15 @@ fn format_col(col: &Column) -> String {
 
 fn format_vol(vol: &VolEffect) -> String {
     match vol {
-        VolEffect::FineVolSlideUp(value) => format!("a{:0>2}", value).to_owned(),
-        VolEffect::FineVolSlideDown(value) => format!("b{:0>2}", value).to_owned(),
-        VolEffect::VolSlideUp(value) => format!("c{:0>2}", value).to_owned(),
-        VolEffect::VolSlideDown(value) => format!("d{:0>2}", value).to_owned(),
-        VolEffect::PortaDown(value) => format!("e{:0>2}", value).to_owned(),
-        VolEffect::PortaUp(value) => format!("f{:0>2}", value).to_owned(),
-        VolEffect::TonePorta(value) => format!("g{:0>2}", value).to_owned(),
-        VolEffect::VibratoDepth(value) => format!("h{:0>2}", value).to_owned(),
-        VolEffect::SetPan(value) => format!("p{:0>2}", value).to_owned(),
+        VolEffect::FineVolSlideUp(value) => format!("\x1b[92ma{:0>2}", value).to_owned(),
+        VolEffect::FineVolSlideDown(value) => format!("\x1b[92mb{:0>2}", value).to_owned(),
+        VolEffect::VolSlideUp(value) => format!("\x1b[92mc{:0>2}", value).to_owned(),
+        VolEffect::VolSlideDown(value) => format!("\x1b[92md{:0>2}", value).to_owned(),
+        VolEffect::PortaDown(value) => format!("\x1b[93me{:0>2}", value).to_owned(),
+        VolEffect::PortaUp(value) => format!("\x1b[93mf{:0>2}", value).to_owned(),
+        VolEffect::TonePorta(value) => format!("\x1b[93mg{:0>2}", value).to_owned(),
+        VolEffect::VibratoDepth(value) => format!("\x1b[93mh{:0>2}", value).to_owned(),
+        VolEffect::SetPan(value) => format!("\x1b[95mp{:0>2}", value).to_owned(),
         VolEffect::Volume(value) => format!("\x1b[92mv{:0>2}", value).to_owned(),
         VolEffect::None => " \x1b[37m..".to_owned(),
     }
