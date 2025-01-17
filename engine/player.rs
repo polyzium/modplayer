@@ -556,13 +556,15 @@ impl Player<'_> {
                     channel.porta_down(self.module.linear_freq_slides, self.ticks_passed, value);
                 }
                 Effect::TonePorta(value) => {
-                    if self.ticks_passed <= 0 {return};
-                    channel.tone_portamento(col.note, self.module.linear_freq_slides, value)
+                    if self.ticks_passed > 0 {
+                        channel.tone_portamento(col.note, self.module.linear_freq_slides, value)
+                    };
                 }
                 Effect::VolSlideTonePorta(value) => {
-                    channel.vol_slide(value, self.ticks_passed);
-                    if self.ticks_passed <= 0 {return};
-                    channel.tone_portamento(col.note, self.module.linear_freq_slides, 0);
+                    channel.velocity_slide(value, self.ticks_passed);
+                    if self.ticks_passed > 0 {
+                        channel.tone_portamento(col.note, self.module.linear_freq_slides, 0);
+                    };
                 }
                 Effect::VolSlideVibrato(value) => {
                     channel.vol_slide(value, self.ticks_passed);
