@@ -459,7 +459,7 @@ impl Channel<'_> {
         if sample.loop_end > 0 {
             if self.position as u32 > sample.loop_end - 1 {
                 match sample.loop_type {
-                    LoopType::Forward => self.position = sample.loop_start as f64,
+                    LoopType::Forward => self.position = sample.loop_start as f64 + ((self.position - sample.loop_end as f64) % ((sample.loop_end - sample.loop_start) as f64)),
                     LoopType::PingPong => {
                         self.backwards = true;
                         self.position -= self.freq as f64 / samplerate as f64;
