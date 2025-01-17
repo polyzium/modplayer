@@ -352,7 +352,7 @@ impl Channel<'_> {
         self.arpeggio_state = true;
     }
 
-    fn process(&mut self, samplerate: u32, interpolation: Interpolation) -> i32 {
+    fn process(&mut self, samplerate: u32, interpolation: Interpolation) -> i16 {
         if self.current_sample_index as usize >= self.module.samples.len() { return 0 }
 
         let sample = &self.module.samples[self.current_sample_index as usize];
@@ -398,11 +398,11 @@ impl Channel<'_> {
 
         match interpolation {
             _ => {
-                (I32F32::from((sample.audio[self.position.to_num::<usize>()]) as i32 * 65536)
+                (I32F32::from(sample.audio[self.position.to_num::<usize>()])
                     * (I32F32::from(self.volume) / I32F32::const_from_int(64))
                     * (I32F32::from(sample.global_volume) / I32F32::const_from_int(64))
                 )
-                    .to_num::<i32>()
+                    .to_num::<i16>()
             }
         }
     }
@@ -455,7 +455,7 @@ impl Player<'_> {
                 freq: U32F32::const_from_int(8363),
                 base_freq: U32F32::const_from_int(8363),
                 current_note: 0,
-                position: U32F32::const_from_int(8363),
+                position: U32F32::const_from_int(0),
                 backwards: false,
 
                 porta_memory: 0,
@@ -481,10 +481,14 @@ impl Player<'_> {
 
         for c in self.channels.iter_mut() {
             if c.playing {
-                let tmp = c.process(self.samplerate, self.interpolation) as i64
-                    * self.module.mixing_volume as i64 / 128
-                    * self.global_volume as i64 / max_global_volume(&self.module.mode) as i64
-                    / 4;
+                let mut tmp = c.process(self.samplerate, self.interpolation) as i32
+                    * self.module.mixing_volume as i32
+                    * self.global_volume as i32
+                    * 2;
+
+                if !matches!(self.module.mode, PlaybackMode::IT | PlaybackMode::ITSample) {
+                    tmp *= 2;
+                }
 
                 out = out.saturating_add(tmp as i32);
             }
